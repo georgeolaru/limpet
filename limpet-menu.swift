@@ -11,6 +11,7 @@ private let configPath = "\(homeDirectory)/.config/limpet/config.sh"
 private let defaultLogPath = "\(homeDirectory)/Library/Logs/limpet.log"
 private let daemonPlistPath = "\(homeDirectory)/Library/LaunchAgents/\(daemonLabel).plist"
 private let uninstallerPath = "\(homeDirectory)/.local/bin/limpet-uninstall.sh"
+private let repoURL = "https://github.com/georgeolaru/limpet"
 
 private struct CommandResult {
     let exitCode: Int32
@@ -110,109 +111,191 @@ private func loadSettings() -> LimpetSettings {
     return s
 }
 
-// MARK: - Settings window
+private func performUninstall() {
+    let alert = NSAlert()
+    alert.messageText = "Uninstall Limpet?"
+    alert.informativeText = "This stops the agents and removes the script, menu app, and LaunchAgents. Your config and logs are kept."
+    alert.alertStyle = .warning
+    alert.addButton(withTitle: "Uninstall")
+    alert.addButton(withTitle: "Cancel")
+    NSApp.activate(ignoringOtherApps: true)
+    guard alert.runModal() == .alertFirstButtonReturn else { return }
 
-private final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
+    if FileManager.default.fileExists(atPath: uninstallerPath) {
+        // Run detached so it survives this app being torn down by the uninstaller.
+        Shell.run("/bin/bash", ["-c", "nohup bash \"\(uninstallerPath)\" >/tmp/limpet-uninstall.log 2>&1 &"])
+    } else {
+        let uid = String(getuid())
+        Shell.run("/bin/launchctl", ["bootout", "gui/\(uid)/\(daemonLabel)"])
+        Shell.run("/bin/launchctl", ["bootout", "gui/\(uid)/\(menuLabel)"])
+    }
+    NSApp.terminate(nil)
+}
+
+// MARK: - Settings: a CodexBar-style tabbed preferences window
+
+// Shared layout helpers for a single preference pane.
+private class SettingsPane: NSViewController {
+    let stack = NSStackView()
+    var paneWidth: CGFloat { 560 }
+
+    override func loadView() {
+        let root = NSView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 16
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+            stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
+            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 22),
+            stack.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -24),
+        ])
+        view = root
+        build()
+        root.layoutSubtreeIfNeeded()
+        preferredContentSize = NSSize(width: paneWidth, height: max(root.fittingSize.height, 160))
+    }
+
+    func build() {}
+
+    // Add a full-width block to the pane.
+    func addRow(_ v: NSView) {
+        stack.addArrangedSubview(v)
+        v.trailingAnchor.constraint(equalTo: stack.trailingAnchor).isActive = true
+    }
+
+    func sectionHeader(_ title: String) -> NSView {
+        let label = NSTextField(labelWithString: title.uppercased())
+        label.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        label.textColor = .secondaryLabelColor
+        return label
+    }
+
+    func captionLabel(_ text: String) -> NSTextField {
+        let label = NSTextField(wrappingLabelWithString: text)
+        label.font = NSFont.systemFont(ofSize: 12)
+        label.textColor = .secondaryLabelColor
+        label.preferredMaxLayoutWidth = paneWidth - 48
+        return label
+    }
+
+    func titleLabel(_ text: String) -> NSTextField {
+        let label = NSTextField(labelWithString: text)
+        label.font = NSFont.systemFont(ofSize: 13)
+        return label
+    }
+
+    func hSpacer(_ width: CGFloat) -> NSView {
+        let view = NSView()
+        view.widthAnchor.constraint(equalToConstant: width).isActive = true
+        return view
+    }
+
+    func divider() -> NSView {
+        let box = NSBox()
+        box.boxType = .separator
+        return box
+    }
+
+    // A checkbox (its own title) with a gray caption indented beneath it.
+    func checkboxBlock(_ checkbox: NSButton, _ caption: String) -> NSView {
+        checkbox.font = NSFont.systemFont(ofSize: 13)
+        let captionRow = NSStackView(views: [hSpacer(20), captionLabel(caption)])
+        captionRow.orientation = .horizontal
+        captionRow.alignment = .firstBaseline
+        let block = NSStackView(views: [checkbox, captionRow])
+        block.orientation = .vertical
+        block.alignment = .leading
+        block.spacing = 4
+        return block
+    }
+
+    // A title on the left, a control pinned to the right, with a caption beneath.
+    func controlBlock(_ title: String, _ control: NSView, _ caption: String) -> NSView {
+        let header = NSStackView()
+        header.orientation = .horizontal
+        header.alignment = .centerY
+        header.addView(titleLabel(title), in: .leading)
+        header.addView(control, in: .trailing)
+        let block = NSStackView(views: [header, captionLabel(caption)])
+        block.orientation = .vertical
+        block.alignment = .leading
+        block.spacing = 4
+        header.trailingAnchor.constraint(equalTo: block.trailingAnchor).isActive = true
+        return block
+    }
+
+    // Center a view within a full-width row.
+    func addCentered(_ inner: NSView) {
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        inner.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(inner)
+        NSLayoutConstraint.activate([
+            inner.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            inner.topAnchor.constraint(equalTo: container.topAnchor),
+            inner.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ])
+        addRow(container)
+    }
+}
+
+// MARK: Hotspot pane
+
+private final class HotspotPane: SettingsPane {
     private let hotspotPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let passwordField = NSSecureTextField()
     private let rememberedCheck = NSButton(checkboxWithTitle: "Use saved macOS credentials if no password is set", target: nil, action: nil)
-    private let preferWifiCheck = NSButton(checkboxWithTitle: "Automatically return to Wi-Fi when available", target: nil, action: nil)
-    private let checkIntervalField = NSTextField()
-    private let maxIntervalField = NSTextField()
     private let testButton = NSButton(title: "Test hotspot now", target: nil, action: nil)
-    private let testResultLabel = NSTextField(labelWithString: "")
-    private let workQueue = DispatchQueue(label: "limpet-menu.settings", qos: .userInitiated)
+    private let testResultLabel = NSTextField(wrappingLabelWithString: "")
+    private let workQueue = DispatchQueue(label: "limpet-menu.hotspot", qos: .userInitiated)
     private var settings = LimpetSettings()
 
-    convenience init() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 440),
-            styleMask: [.titled, .closable, .miniaturizable],
-            backing: .buffered,
-            defer: false)
-        window.title = "Limpet — Settings"
-        window.isReleasedWhenClosed = false
-        self.init(window: window)
-        buildUI()
-    }
-
-    func show() {
-        reload()
-        NSApp.activate(ignoringOtherApps: true)
-        window?.center()
-        window?.makeKeyAndOrderFront(nil)
-    }
-
-    private func buildUI() {
-        guard let content = window?.contentView else { return }
-
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 10
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 20),
-            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
-            stack.topAnchor.constraint(equalTo: content.topAnchor, constant: 20),
-            stack.bottomAnchor.constraint(lessThanOrEqualTo: content.bottomAnchor, constant: -20),
-        ])
-
-        stack.addArrangedSubview(sectionHeader("PHONE HOTSPOT"))
-        stack.addArrangedSubview(caption("The fallback network when Wi-Fi has no internet."))
+    override func build() {
+        addRow(sectionHeader("Phone hotspot"))
 
         hotspotPopup.target = self
         hotspotPopup.action = #selector(hotspotChanged)
-        hotspotPopup.widthAnchor.constraint(equalToConstant: 250).isActive = true
-        stack.addArrangedSubview(labeledRow("Hotspot network:", hotspotPopup))
+        hotspotPopup.widthAnchor.constraint(equalToConstant: 260).isActive = true
+        addRow(controlBlock("Hotspot network", hotspotPopup,
+                            "Usually your iPhone’s name — Settings ▸ General ▸ About ▸ Name."))
 
         passwordField.placeholderString = "Hotspot password"
         passwordField.target = self
-        passwordField.action = #selector(passwordCommitted)   // fires on Return only
-        passwordField.widthAnchor.constraint(equalToConstant: 250).isActive = true
-        stack.addArrangedSubview(labeledRow("Password:", passwordField))
-        stack.addArrangedSubview(caption("Stored in your macOS Keychain, never written to disk. Press Return to save."))
+        passwordField.action = #selector(passwordCommitted)   // fires on Return
+        passwordField.widthAnchor.constraint(equalToConstant: 260).isActive = true
+        addRow(controlBlock("Password", passwordField,
+                            "Stored in your macOS Keychain, never on disk. Press Return to save."))
 
         rememberedCheck.target = self
         rememberedCheck.action = #selector(rememberedToggled)
-        stack.addArrangedSubview(rememberedCheck)
+        addRow(checkboxBlock(rememberedCheck,
+                             "Falls back to credentials macOS already saved for this network."))
+
+        addRow(divider())
 
         testButton.target = self
         testButton.action = #selector(testHotspot)
         testButton.bezelStyle = .rounded
+        testResultLabel.font = NSFont.systemFont(ofSize: 12)
         testResultLabel.textColor = .secondaryLabelColor
-        testResultLabel.lineBreakMode = .byTruncatingTail
-        let testRow = NSStackView(views: [testButton, testResultLabel])
-        testRow.orientation = .horizontal
-        testRow.spacing = 10
-        stack.addArrangedSubview(testRow)
+        testResultLabel.preferredMaxLayoutWidth = paneWidth - 48
+        let testStack = NSStackView(views: [testButton, testResultLabel])
+        testStack.orientation = .vertical
+        testStack.alignment = .leading
+        testStack.spacing = 6
+        addRow(testStack)
+    }
 
-        stack.addArrangedSubview(spacer(6))
-        stack.addArrangedSubview(sectionHeader("BEHAVIOR"))
-
-        preferWifiCheck.target = self
-        preferWifiCheck.action = #selector(preferWifiToggled)
-        stack.addArrangedSubview(preferWifiCheck)
-
-        checkIntervalField.delegate = self
-        checkIntervalField.target = self
-        checkIntervalField.action = #selector(intervalsCommitted)
-        checkIntervalField.widthAnchor.constraint(equalToConstant: 70).isActive = true
-        stack.addArrangedSubview(labeledRow("Check interval while online (s):", checkIntervalField))
-
-        maxIntervalField.delegate = self
-        maxIntervalField.target = self
-        maxIntervalField.action = #selector(intervalsCommitted)
-        maxIntervalField.widthAnchor.constraint(equalToConstant: 70).isActive = true
-        stack.addArrangedSubview(labeledRow("Max backoff when offline (s):", maxIntervalField))
-
-        stack.addArrangedSubview(caption("Changes apply immediately and restart the background agent."))
+    override func viewWillAppear() {
+        super.viewWillAppear()
+        reload()
     }
 
     private func reload() {
         settings = loadSettings()
-
         var items = listSavedNetworks()
         if !settings.hotspotSSID.isEmpty && !items.contains(settings.hotspotSSID) {
             items.insert(settings.hotspotSSID, at: 0)
@@ -222,27 +305,18 @@ private final class SettingsWindowController: NSWindowController, NSTextFieldDel
             hotspotPopup.addItem(withTitle: "(no saved networks)")
         } else {
             hotspotPopup.addItems(withTitles: items)
-            if !settings.hotspotSSID.isEmpty {
-                hotspotPopup.selectItem(withTitle: settings.hotspotSSID)
-            }
+            if !settings.hotspotSSID.isEmpty { hotspotPopup.selectItem(withTitle: settings.hotspotSSID) }
         }
-
         passwordField.stringValue = ""
         passwordField.placeholderString = settings.passwordSet ? "•••••••• (saved — type to replace)" : "Hotspot password"
         rememberedCheck.state = settings.tryRemembered ? .on : .off
-        preferWifiCheck.state = settings.preferWifi ? .on : .off
-        checkIntervalField.stringValue = String(settings.checkInterval)
-        maxIntervalField.stringValue = String(settings.maxInterval)
         testResultLabel.stringValue = ""
     }
-
-    // MARK: control actions
 
     @objc private func hotspotChanged() {
         guard let ssid = hotspotPopup.titleOfSelectedItem, ssid != "(no saved networks)" else { return }
         settings.hotspotSSID = ssid
         applyAndRestart { setConfig("HOTSPOT_SSID", ssid) }
-        // The Keychain password is keyed to the SSID — reflect whether one exists for this one.
         workQueue.async {
             let s = loadSettings()
             DispatchQueue.main.async {
@@ -277,47 +351,36 @@ private final class SettingsWindowController: NSWindowController, NSTextFieldDel
         applyAndRestart { setConfig("TRY_REMEMBERED_HOTSPOT", on ? "1" : "0") }
     }
 
-    @objc private func preferWifiToggled() {
-        let on = preferWifiCheck.state == .on
-        settings.preferWifi = on
-        applyAndRestart { setConfig("PREFER_WIFI_OVER_HOTSPOT", on ? "1" : "0") }
-    }
-
-    @objc private func intervalsCommitted() { applyIntervals() }
-
-    func controlTextDidEndEditing(_ obj: Notification) {
-        guard let field = obj.object as? NSTextField else { return }
-        if field === checkIntervalField || field === maxIntervalField { applyIntervals() }
-    }
-
-    private func applyIntervals() {
-        let check = max(5, Int(checkIntervalField.stringValue) ?? settings.checkInterval)
-        let backoff = max(check, Int(maxIntervalField.stringValue) ?? settings.maxInterval)
-        checkIntervalField.stringValue = String(check)
-        maxIntervalField.stringValue = String(backoff)
-        if check != settings.checkInterval {
-            settings.checkInterval = check
-            applyAndRestart { setConfig("CHECK_INTERVAL", String(check)) }
-        }
-        if backoff != settings.maxInterval {
-            settings.maxInterval = backoff
-            applyAndRestart { setConfig("MAX_INTERVAL", String(backoff)) }
-        }
-    }
-
     @objc private func testHotspot() {
         testButton.isEnabled = false
         testResultLabel.textColor = .secondaryLabelColor
-        testResultLabel.stringValue = "Testing… turn on Personal Hotspot."
+        testResultLabel.stringValue = "Testing… open Personal Hotspot on the phone and keep it nearby."
         workQueue.async {
             let result = Shell.run(scriptPath, ["--test-hotspot"])
+            let reason = Self.testFailureReason(from: result.output)
             DispatchQueue.main.async {
                 self.testButton.isEnabled = true
-                let ok = result.exitCode == 0
-                self.testResultLabel.textColor = ok ? .systemGreen : .systemRed
-                self.testResultLabel.stringValue = ok ? "✓ Internet OK via hotspot." : "✗ Hotspot test failed."
+                if result.exitCode == 0 {
+                    self.testResultLabel.textColor = .systemGreen
+                    self.testResultLabel.stringValue = "✓ Internet OK via hotspot."
+                } else {
+                    self.testResultLabel.textColor = .systemRed
+                    self.testResultLabel.stringValue = "✗ \(reason)"
+                }
             }
         }
+    }
+
+    private static func testFailureReason(from output: String) -> String {
+        let lower = output.lowercased()
+        if lower.contains("no hotspot configured") { return "Pick your hotspot network first." }
+        if lower.contains("no wi-fi interface") { return "No Wi-Fi interface found." }
+        if lower.contains("could not find network") || lower.contains("not in range") {
+            return "Hotspot not found — turn Personal Hotspot ON and keep the phone nearby and awake."
+        }
+        if lower.contains("captive") { return "That network needs a login (captive portal)." }
+        if lower.contains("no internet") { return "Joined the hotspot, but it has no internet — check the phone’s data." }
+        return "Test failed — check the hotspot is on and the password is correct."
     }
 
     private func applyAndRestart(_ work: @escaping () -> CommandResult) {
@@ -326,39 +389,191 @@ private final class SettingsWindowController: NSWindowController, NSTextFieldDel
             _ = restartDaemon()
         }
     }
+}
 
-    // MARK: small view builders
+// MARK: Behavior pane
 
-    private func sectionHeader(_ title: String) -> NSView {
-        let label = NSTextField(labelWithString: title)
-        label.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
-        label.textColor = .secondaryLabelColor
-        return label
+private final class BehaviorPane: SettingsPane {
+    private let preferWifiCheck = NSButton(checkboxWithTitle: "Automatically return to Wi-Fi when available", target: nil, action: nil)
+    private let checkIntervalPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let maxIntervalPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let workQueue = DispatchQueue(label: "limpet-menu.behavior", qos: .userInitiated)
+    private var settings = LimpetSettings()
+    private let checkPresets = [15, 30, 45, 60, 90, 120]
+    private let backoffPresets = [120, 180, 300, 600, 900]
+
+    override func build() {
+        addRow(sectionHeader("Wi-Fi"))
+        preferWifiCheck.target = self
+        preferWifiCheck.action = #selector(preferWifiToggled)
+        addRow(checkboxBlock(preferWifiCheck,
+                             "When known Wi-Fi returns, move off the hotspot back onto it."))
+
+        addRow(divider())
+        addRow(sectionHeader("Timing"))
+
+        checkIntervalPopup.target = self
+        checkIntervalPopup.action = #selector(checkIntervalChanged)
+        checkIntervalPopup.widthAnchor.constraint(equalToConstant: 110).isActive = true
+        addRow(controlBlock("Check interval while online", checkIntervalPopup,
+                            "How often Limpet verifies the connection when everything’s fine."))
+
+        maxIntervalPopup.target = self
+        maxIntervalPopup.action = #selector(maxIntervalChanged)
+        maxIntervalPopup.widthAnchor.constraint(equalToConstant: 110).isActive = true
+        addRow(controlBlock("Max backoff when offline", maxIntervalPopup,
+                            "Longest wait between retries while it can’t get online."))
     }
 
-    private func caption(_ text: String) -> NSView {
-        let label = NSTextField(wrappingLabelWithString: text)
-        label.font = NSFont.systemFont(ofSize: 11)
-        label.textColor = .secondaryLabelColor
-        label.preferredMaxLayoutWidth = 420
-        return label
+    override func viewWillAppear() {
+        super.viewWillAppear()
+        reload()
     }
 
-    private func labeledRow(_ title: String, _ control: NSView) -> NSView {
-        let label = NSTextField(labelWithString: title)
-        label.alignment = .right
-        label.widthAnchor.constraint(equalToConstant: 200).isActive = true
-        let row = NSStackView(views: [label, control])
-        row.orientation = .horizontal
-        row.alignment = .centerY
-        row.spacing = 8
-        return row
+    private func reload() {
+        settings = loadSettings()
+        preferWifiCheck.state = settings.preferWifi ? .on : .off
+        fill(checkIntervalPopup, presets: checkPresets, current: settings.checkInterval)
+        fill(maxIntervalPopup, presets: backoffPresets, current: settings.maxInterval)
     }
 
-    private func spacer(_ height: CGFloat) -> NSView {
-        let view = NSView()
-        view.heightAnchor.constraint(equalToConstant: height).isActive = true
-        return view
+    private func fill(_ popup: NSPopUpButton, presets: [Int], current: Int) {
+        var values = presets
+        if !values.contains(current) { values.append(current); values.sort() }
+        popup.removeAllItems()
+        popup.addItems(withTitles: values.map { "\($0) s" })
+        popup.selectItem(withTitle: "\(current) s")
+    }
+
+    private func seconds(_ popup: NSPopUpButton) -> Int? {
+        guard let title = popup.titleOfSelectedItem else { return nil }
+        return Int(title.replacingOccurrences(of: " s", with: ""))
+    }
+
+    @objc private func preferWifiToggled() {
+        let on = preferWifiCheck.state == .on
+        settings.preferWifi = on
+        apply { setConfig("PREFER_WIFI_OVER_HOTSPOT", on ? "1" : "0") }
+    }
+
+    @objc private func checkIntervalChanged() {
+        guard let value = seconds(checkIntervalPopup) else { return }
+        settings.checkInterval = value
+        apply { setConfig("CHECK_INTERVAL", String(value)) }
+    }
+
+    @objc private func maxIntervalChanged() {
+        guard let value = seconds(maxIntervalPopup) else { return }
+        settings.maxInterval = value
+        apply { setConfig("MAX_INTERVAL", String(value)) }
+    }
+
+    private func apply(_ work: @escaping () -> CommandResult) {
+        workQueue.async {
+            _ = work()
+            _ = restartDaemon()
+        }
+    }
+}
+
+// MARK: About pane
+
+private final class AboutPane: SettingsPane {
+    override func build() {
+        let icon = NSImageView()
+        icon.imageScaling = .scaleProportionallyUpOrDown
+        if let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+           let image = NSImage(contentsOf: iconURL) {
+            icon.image = image
+        }
+        icon.widthAnchor.constraint(equalToConstant: 72).isActive = true
+        icon.heightAnchor.constraint(equalToConstant: 72).isActive = true
+
+        let name = NSTextField(labelWithString: "Limpet")
+        name.font = NSFont.systemFont(ofSize: 22, weight: .semibold)
+
+        let version = (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "1.0"
+        let versionLabel = NSTextField(labelWithString: "Version \(version)")
+        versionLabel.font = NSFont.systemFont(ofSize: 12)
+        versionLabel.textColor = .secondaryLabelColor
+
+        let header = NSStackView(views: [icon, name, versionLabel])
+        header.orientation = .vertical
+        header.alignment = .centerX
+        header.spacing = 6
+        addCentered(header)
+
+        let tagline = captionLabel("Keeps your Mac online by failing over to your phone’s hotspot when Wi-Fi drops, then returning to Wi-Fi automatically.")
+        tagline.alignment = .center
+        addRow(tagline)
+
+        addRow(divider())
+
+        let github = linkButton("View on GitHub", #selector(openGitHub))
+        let log = linkButton("Open Log", #selector(openLog))
+        let links = NSStackView(views: [github, log])
+        links.orientation = .horizontal
+        links.spacing = 18
+        addRow(links)
+
+        let uninstallButton = NSButton(title: "Uninstall Limpet…", target: self, action: #selector(uninstall))
+        uninstallButton.bezelStyle = .rounded
+        addRow(uninstallButton)
+    }
+
+    private func linkButton(_ title: String, _ selector: Selector) -> NSButton {
+        let button = NSButton(title: title, target: self, action: selector)
+        button.isBordered = false
+        button.contentTintColor = .linkColor
+        button.font = NSFont.systemFont(ofSize: 13)
+        return button
+    }
+
+    @objc private func openGitHub() {
+        if let url = URL(string: repoURL) { NSWorkspace.shared.open(url) }
+    }
+
+    @objc private func openLog() {
+        NSWorkspace.shared.open(URL(fileURLWithPath: defaultLogPath))
+    }
+
+    @objc private func uninstall() {
+        performUninstall()
+    }
+}
+
+// MARK: Window controller
+
+private final class SettingsWindowController: NSWindowController {
+    private let tabController = NSTabViewController()
+
+    convenience init() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 560, height: 420),
+            styleMask: [.titled, .closable, .miniaturizable],
+            backing: .buffered,
+            defer: false)
+        window.isReleasedWhenClosed = false
+        self.init(window: window)
+
+        tabController.tabStyle = .toolbar
+        addTab(HotspotPane(), label: "Hotspot", symbol: "personalhotspot")
+        addTab(BehaviorPane(), label: "Behavior", symbol: "slider.horizontal.3")
+        addTab(AboutPane(), label: "About", symbol: "info.circle")
+        window.contentViewController = tabController
+    }
+
+    private func addTab(_ controller: NSViewController, label: String, symbol: String) {
+        let item = NSTabViewItem(viewController: controller)
+        item.label = label
+        item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
+        tabController.addTabViewItem(item)
+    }
+
+    func show() {
+        NSApp.activate(ignoringOtherApps: true)
+        if let window, !window.isVisible { window.center() }
+        window?.makeKeyAndOrderFront(nil)
     }
 }
 
@@ -645,7 +860,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         return item
     }
 
-    private func performAction(_ title: String, _ action: @escaping () -> CommandResult) {
+    private func performMenuAction(_ title: String, _ action: @escaping () -> CommandResult) {
         lastActionMessage = "\(title): running..."
         rebuildMenu()
 
@@ -662,27 +877,27 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func togglePause(_ sender: NSMenuItem) {
         if isPaused {
-            performAction("Resume Limpet") {
+            performMenuAction("Resume Limpet") {
                 let uid = String(getuid())
                 let result = Shell.run("/bin/launchctl", ["bootstrap", "gui/\(uid)", daemonPlistPath])
                 Shell.run("/bin/launchctl", ["enable", "gui/\(uid)/\(daemonLabel)"])
                 return result
             }
         } else {
-            performAction("Pause Limpet") {
+            performMenuAction("Pause Limpet") {
                 Shell.run("/bin/launchctl", ["bootout", "gui/\(getuid())/\(daemonLabel)"])
             }
         }
     }
 
     @objc private func checkInternetNow(_ sender: NSMenuItem) {
-        performAction("Check Internet Now") {
+        performMenuAction("Check Internet Now") {
             Shell.run(scriptPath, ["--check"])
         }
     }
 
     @objc private func preferWifiNow(_ sender: NSMenuItem) {
-        performAction("Prefer Wi-Fi Now") {
+        performMenuAction("Prefer Wi-Fi Now") {
             Shell.run(scriptPath, ["--prefer-wifi-now"])
         }
     }
@@ -713,24 +928,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func uninstall(_ sender: NSMenuItem) {
-        let alert = NSAlert()
-        alert.messageText = "Uninstall Limpet?"
-        alert.informativeText = "This stops the agents and removes the script, menu app, and LaunchAgents. Your config and logs are kept."
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Uninstall")
-        alert.addButton(withTitle: "Cancel")
-        NSApp.activate(ignoringOtherApps: true)
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-
-        if FileManager.default.fileExists(atPath: uninstallerPath) {
-            // Run detached so it survives this app being torn down by the uninstaller.
-            Shell.run("/bin/bash", ["-c", "nohup bash \"\(uninstallerPath)\" >/tmp/limpet-uninstall.log 2>&1 &"])
-        } else {
-            let uid = String(getuid())
-            Shell.run("/bin/launchctl", ["bootout", "gui/\(uid)/\(daemonLabel)"])
-            Shell.run("/bin/launchctl", ["bootout", "gui/\(uid)/\(menuLabel)"])
-        }
-        NSApp.terminate(nil)
+        performUninstall()
     }
 
     @objc private func quitMenu(_ sender: NSMenuItem) {
