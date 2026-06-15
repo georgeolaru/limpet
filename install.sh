@@ -4,9 +4,10 @@
 #
 # What it does:
 #   1. Copies limpet.sh to ~/.local/bin/ and makes it executable.
-#   2. Creates ~/.config/limpet/config.sh from the example (if it doesn't exist).
-#   3. Generates the plist with the correct paths in ~/Library/LaunchAgents/.
-#   4. Loads (bootstraps) the agent into launchd.
+#   2. Builds the menu-bar companion as ~/Applications/Limpet Menu.app.
+#   3. Creates ~/.config/limpet/config.sh from the example (if it doesn't exist).
+#   4. Generates the plists with the correct paths in ~/Library/LaunchAgents/.
+#   5. Loads (bootstraps) the agents into launchd.
 #
 # Run:  bash install.sh
 # =============================================================================
@@ -18,7 +19,18 @@ SRC_DIR="$(cd "$(dirname "$0")" && pwd)"
 BIN_DIR="$HOME/.local/bin"
 SCRIPT_DST="$BIN_DIR/limpet.sh"
 MENU_SRC="$SRC_DIR/limpet-menu.swift"
-MENU_DST="$BIN_DIR/limpet-menu"
+MENU_APP_DIR="$HOME/Applications"
+MENU_APP_DST="$MENU_APP_DIR/Limpet Menu.app"
+MENU_EXEC_DST="$MENU_APP_DST/Contents/MacOS/limpet-menu"
+MENU_RESOURCES_DST="$MENU_APP_DST/Contents/Resources"
+MENU_ICON_SRC="$SRC_DIR/assets/AppIcon.icns"
+MENU_BAR_ICON_NAMES=(
+  MenuBarIconTemplate
+  MenuBarIconTemplateOK
+  MenuBarIconTemplateDown
+  MenuBarIconTemplateCaptive
+  MenuBarIconTemplateUnknown
+)
 CONFIG_DIR="$HOME/.config/limpet"
 CONFIG_DST="$CONFIG_DIR/config.sh"
 AGENTS_DIR="$HOME/Library/LaunchAgents"
@@ -34,11 +46,61 @@ cp "$SRC_DIR/limpet.sh" "$SCRIPT_DST"
 chmod +x "$SCRIPT_DST"
 echo "  - script        : $SCRIPT_DST"
 
+# Installed uninstaller (also used by the menu app's "Uninstall Limpet…").
+if [ -f "$SRC_DIR/uninstall.sh" ]; then
+  cp "$SRC_DIR/uninstall.sh" "$BIN_DIR/limpet-uninstall.sh"
+  chmod +x "$BIN_DIR/limpet-uninstall.sh"
+  echo "  - uninstaller   : $BIN_DIR/limpet-uninstall.sh"
+fi
+
 # 2. Menu bar helper
 if [ -f "$MENU_SRC" ] && command -v swiftc >/dev/null 2>&1; then
-  swiftc -O "$MENU_SRC" -o "$MENU_DST"
-  chmod +x "$MENU_DST"
-  echo "  - menu helper   : $MENU_DST"
+  mkdir -p "$MENU_APP_DIR" "$MENU_APP_DST/Contents/MacOS" "$MENU_RESOURCES_DST"
+  swiftc -O "$MENU_SRC" -o "$MENU_EXEC_DST"
+  chmod +x "$MENU_EXEC_DST"
+
+  if [ -f "$MENU_ICON_SRC" ]; then
+    cp "$MENU_ICON_SRC" "$MENU_RESOURCES_DST/AppIcon.icns"
+  else
+    echo "  - menu icon     : skipped (assets/AppIcon.icns missing)"
+  fi
+  for icon_name in "${MENU_BAR_ICON_NAMES[@]}"; do
+    if [ -f "$SRC_DIR/assets/$icon_name.png" ]; then
+      cp "$SRC_DIR/assets/$icon_name.png" "$MENU_RESOURCES_DST/$icon_name.png"
+    else
+      echo "  - menu bar icon : skipped (assets/$icon_name.png missing)"
+    fi
+  done
+
+  cat > "$MENU_APP_DST/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDisplayName</key>
+  <string>Limpet</string>
+  <key>CFBundleExecutable</key>
+  <string>limpet-menu</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon.icns</string>
+  <key>CFBundleIdentifier</key>
+  <string>$MENU_LABEL</string>
+  <key>CFBundleName</key>
+  <string>Limpet</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>1.0</string>
+  <key>CFBundleVersion</key>
+  <string>1</string>
+  <key>LSUIElement</key>
+  <true/>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+</dict>
+</plist>
+PLIST
+  echo "  - menu app      : $MENU_APP_DST"
 elif [ -f "$MENU_SRC" ]; then
   echo "  - menu helper   : skipped (swiftc not found)"
 else
@@ -90,7 +152,7 @@ cat > "$PLIST_DST" <<PLIST
 PLIST
 echo "  - LaunchAgent   : $PLIST_DST"
 
-if [ -x "$MENU_DST" ]; then
+if [ -x "$MENU_EXEC_DST" ]; then
 cat > "$MENU_PLIST_DST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -100,7 +162,7 @@ cat > "$MENU_PLIST_DST" <<PLIST
   <string>$MENU_LABEL</string>
   <key>ProgramArguments</key>
   <array>
-    <string>$MENU_DST</string>
+    <string>$MENU_EXEC_DST</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
@@ -150,7 +212,7 @@ load_agent() {
 echo "==> Loading into launchd..."
 load_agent "$LABEL" "$PLIST_DST" "daemon"
 
-if [ -x "$MENU_DST" ]; then
+if [ -x "$MENU_EXEC_DST" ]; then
   load_agent "$MENU_LABEL" "$MENU_PLIST_DST" "menu"
 fi
 

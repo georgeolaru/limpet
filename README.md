@@ -53,6 +53,10 @@ hotspot unavailable · hotspot present but no internet · captive portal.
 |---|---|
 | `limpet.sh` | The main script (daemon + diagnostic commands). |
 | `limpet-menu.swift` | Native menu-bar companion (status + quick actions). |
+| `assets/limpet-icon.png` | Original 1254×1254 app icon source copied from the downloaded image. |
+| `assets/limpet-icon.svg` | Pixel-exact SVG wrapper for the app icon source image. |
+| `assets/AppIcon.icns` | macOS app icon installed into the menu-bar app bundle. |
+| `assets/MenuBarIconTemplate*.png` | Transparent template glyph variants used for macOS menu-bar status states. |
 | `config.example.sh` | Configuration template → copied to `~/.config/limpet/config.sh`. |
 | `com.georgeolaru.limpet.plist` | LaunchAgent (reference; `install.sh` generates one with the correct paths). |
 | `install.sh` | Installs and starts everything. |
@@ -69,7 +73,8 @@ bash install.sh
 
 The installer:
 - copies the script to `~/.local/bin/limpet.sh` (executable);
-- compiles the status item to `~/.local/bin/limpet-menu` if `swiftc` is available;
+- compiles the status item to `~/Applications/Limpet Menu.app` if `swiftc` is available;
+- installs the app icon into the menu-bar app bundle;
 - creates `~/.config/limpet/config.sh` from the example (if it doesn't exist);
 - generates the plists with real paths in `~/Library/LaunchAgents/`;
 - loads them into `launchd` (the daemon + menu bar start immediately and at every login).
@@ -216,6 +221,7 @@ Example logs:
 
 Installation also starts a small companion in the menu bar. It doesn't do the monitoring
 itself; it only reads the daemon's status and runs safe actions on top of the script/launchd.
+The menu bar shows a Limpet template icon variant for OK, down, captive portal, or unknown status.
 
 What you see in the menu:
 - internet status: OK / DOWN / captive portal;
@@ -224,12 +230,25 @@ What you see in the menu:
 - the last line from the log.
 
 Available actions:
-- **Refresh Status** — re-reads the status;
+- **Pause Limpet / Resume Limpet** — stops or restarts the background daemon;
 - **Check Internet Now** — runs `limpet.sh --check`;
 - **Prefer Wi-Fi Now** — if you're on the hotspot, immediately try the preferred networks;
-- **Restart Agent** — runs `launchctl kickstart -k` for the daemon;
-- **Stop Agent** — stops the daemon, without removing the installation;
-- **Show Details**, **Open Log**, **Edit Config**.
+- **Settings…** — opens the Settings window (see below);
+- **Open Log**, **Show Details**;
+- **Quit Limpet**, **Uninstall Limpet…** — Uninstall runs the bundled uninstaller (keeps config + logs).
+
+### Settings window
+
+Instead of hand-editing the config, open **Settings…** to configure Limpet:
+
+- **Phone hotspot** — pick your hotspot from your saved Wi-Fi networks, set its password
+  (stored in the Keychain), and **Test hotspot now** to confirm it actually connects.
+- **Behavior** — toggle "Automatically return to Wi-Fi when available", and set the check
+  interval and max backoff.
+
+Changes apply immediately and restart the daemon. Under the hood the window edits the same
+`~/.config/limpet/config.sh` and Keychain entry the daemon already uses — so the CLI and the
+UI never disagree.
 
 The menu bar has its own LaunchAgent:
 
@@ -237,7 +256,7 @@ The menu bar has its own LaunchAgent:
 launchctl print gui/$(id -u)/com.georgeolaru.limpet.menu | grep -E 'state|pid'
 ```
 
-If you only close the menu bar via "Quit Menu", the daemon keeps running. At the next
+If you only close the menu bar via "Quit Limpet", the daemon keeps running. At the next
 login the menu bar starts again.
 
 ---

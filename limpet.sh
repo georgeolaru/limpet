@@ -31,7 +31,9 @@
 #   limpet.sh --status        -> show the current state (read-only)
 #   limpet.sh --scan          -> visible Wi-Fi networks (best-effort)
 #   limpet.sh --prefer-wifi-now -> if on hotspot, try preferred Wi-Fi
+#   limpet.sh --test-hotspot  -> test the configured hotspot fallback
 #   limpet.sh --test-join SSID [password]  -> test connecting manually
+#   limpet.sh --list-saved-networks -> remembered Wi-Fi networks
 #   limpet.sh --help
 # =============================================================================
 
@@ -522,7 +524,7 @@ release_lock() {
 }
 
 usage() {
-  sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'
+  awk 'NR>=2 && /^# ={5,}/ {c++} c>=1 {print} c>=2 {exit}' "$0" | sed 's/^# \{0,1\}//'
 }
 
 # ------------------------------------------------------------------------------
@@ -609,6 +611,89 @@ case "${1:-}" in
     rotate_log_if_big
     prefer_wifi_over_hotspot
     exit $?
+    ;;
+
+  --test-hotspot)
+    [ -z "$IFACE" ] && { echo "No Wi-Fi interface found."; exit 1; }
+    [ -z "$HOTSPOT_SSID" ] && { echo "No hotspot configured."; exit 1; }
+    VERBOSE=1
+    rotate_log_if_big
+    ensure_wifi_on
+    if try_hotspot; then echo "Hotspot OK: internet via '$HOTSPOT_SSID'."; exit 0; fi
+    echo "Hotspot test failed for '$HOTSPOT_SSID'."
+    exit 1
+    ;;
+
+  # --- UI helpers (used by the menu-bar app; safe to run manually) ----------
+  --list-saved-networks)
+    [ -z "$IFACE" ] && { echo "No Wi-Fi interface found." >&2; exit 1; }
+    # Saved/remembered networks. Works even when the live scan is redacted.
+    networksetup -listpreferredwirelessnetworks "$IFACE" 2>/dev/null \
+      | sed '1d; s/^[[:space:]]*//'
+    exit 0
+    ;;
+
+  --print-config)
+    # Emit the UI-managed settings as KEY=VALUE (the menu-bar app reads these).
+    echo "HOTSPOT_SSID=$HOTSPOT_SSID"
+    echo "TRY_REMEMBERED_HOTSPOT=$TRY_REMEMBERED_HOTSPOT"
+    echo "PREFER_WIFI_OVER_HOTSPOT=$PREFER_WIFI_OVER_HOTSPOT"
+    echo "CHECK_INTERVAL=$CHECK_INTERVAL"
+    echo "MAX_INTERVAL=$MAX_INTERVAL"
+    if [ -n "$HOTSPOT_PASSWORD" ] || \
+       security find-generic-password -s "$HOTSPOT_KEYCHAIN_SERVICE" -a "$HOTSPOT_SSID" -w >/dev/null 2>&1; then
+      echo "HOTSPOT_PASSWORD_SET=1"
+    else
+      echo "HOTSPOT_PASSWORD_SET=0"
+    fi
+    echo "CONFIG_FILE=$CONFIG_FILE"
+    exit 0
+    ;;
+
+  --set-config)
+    # --set-config KEY VALUE : upsert one whitelisted key in the user config.
+    key="${2:-}"; value="${3:-}"
+    case "$key" in
+      HOTSPOT_SSID|TRY_REMEMBERED_HOTSPOT|PREFER_WIFI_OVER_HOTSPOT|CHECK_INTERVAL|MAX_INTERVAL) ;;
+      *) echo "Refusing to set unknown key: '$key'" >&2; exit 1 ;;
+    esac
+    case "$key" in
+      HOTSPOT_SSID) line="$key=\"$value\"" ;;
+      *)            line="$key=$value" ;;
+    esac
+    mkdir -p "$(dirname "$CONFIG_FILE")"
+    tmp="$(mktemp "${TMPDIR:-/tmp}/limpet-cfg.XXXXXX")" || exit 1
+    if [ -f "$CONFIG_FILE" ] && grep -qE "^[[:space:]]*$key=" "$CONFIG_FILE"; then
+      awk -v k="$key" -v repl="$line" '
+        $0 ~ ("^[[:space:]]*" k "=") { print repl; next }
+        { print }
+      ' "$CONFIG_FILE" > "$tmp"
+    else
+      [ -f "$CONFIG_FILE" ] && cat "$CONFIG_FILE" >> "$tmp"
+      printf '%s\n' "$line" >> "$tmp"
+    fi
+    mv "$tmp" "$CONFIG_FILE"
+    echo "set $key"
+    exit 0
+    ;;
+
+  --set-hotspot-password)
+    # Reads the password from STDIN so it never appears in argv / ps output.
+    # Usage: printf '%s' "secret" | limpet.sh --set-hotspot-password [SSID]
+    ssid="${2:-$HOTSPOT_SSID}"
+    IFS= read -r pass || true
+    [ -z "$ssid" ] && { echo "No hotspot SSID set." >&2; exit 1; }
+    if [ -z "$pass" ]; then
+      security delete-generic-password -s "$HOTSPOT_KEYCHAIN_SERVICE" -a "$ssid" >/dev/null 2>&1 || true
+      echo "cleared"
+      exit 0
+    fi
+    if security add-generic-password -U -s "$HOTSPOT_KEYCHAIN_SERVICE" -a "$ssid" -w "$pass" >/dev/null 2>&1; then
+      echo "saved"
+      exit 0
+    fi
+    echo "keychain error" >&2
+    exit 1
     ;;
 
   -h|--help)

@@ -3,7 +3,7 @@
 # uninstall.sh - stops and uninstalls limpet.
 #
 # Keeps the config and the logs (so you don't lose your settings). Removes only
-# the agent and the installed script. Run with --purge to also delete config+logs.
+# the agents, installed script, and menu app. Run with --purge to also delete config+logs.
 # =============================================================================
 set -e
 
@@ -11,7 +11,9 @@ LABEL="com.georgeolaru.limpet"
 MENU_LABEL="com.georgeolaru.limpet.menu"
 UID_NUM="$(id -u)"
 BIN_DST="$HOME/.local/bin/limpet.sh"
-MENU_BIN_DST="$HOME/.local/bin/limpet-menu"
+UNINSTALLER_DST="$HOME/.local/bin/limpet-uninstall.sh"
+MENU_APP_DST="$HOME/Applications/Limpet Menu.app"
+MENU_BIN_LEGACY_DST="$HOME/.local/bin/limpet-menu"
 PLIST_DST="$HOME/Library/LaunchAgents/$LABEL.plist"
 MENU_PLIST_DST="$HOME/Library/LaunchAgents/$MENU_LABEL.plist"
 CONFIG_DIR="$HOME/.config/limpet"
@@ -27,7 +29,9 @@ echo "==> Removing files..."
 rm -f "$PLIST_DST"      && echo "  - removed $PLIST_DST"
 rm -f "$MENU_PLIST_DST" && echo "  - removed $MENU_PLIST_DST"
 rm -f "$BIN_DST"        && echo "  - removed $BIN_DST"
-rm -f "$MENU_BIN_DST"   && echo "  - removed $MENU_BIN_DST"
+rm -rf "$MENU_APP_DST"  && echo "  - removed $MENU_APP_DST"
+rm -f "$MENU_BIN_LEGACY_DST" && echo "  - removed $MENU_BIN_LEGACY_DST"
+rm -f "$UNINSTALLER_DST" && echo "  - removed $UNINSTALLER_DST"
 rm -rf "${TMPDIR:-/tmp}/limpet.lock" 2>/dev/null || true
 
 if [ "${1:-}" = "--purge" ]; then
