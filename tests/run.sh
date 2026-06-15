@@ -55,7 +55,7 @@ pass "app icon assets are present"
 
 grep -q 'limpet-menu' "$INSTALLER" || fail "install.sh does not install the menu helper"
 grep -q 'com.georgeolaru.limpet.menu' "$INSTALLER" || fail "install.sh does not create/load the menu LaunchAgent"
-grep -q 'Limpet Menu.app' "$INSTALLER" || fail "install.sh does not install the menu helper as an app bundle"
+grep -q 'Limpet.app' "$INSTALLER" || fail "install.sh does not install the menu helper as an app bundle"
 grep -q 'AppIcon.icns' "$INSTALLER" || fail "install.sh does not install the app icon"
 grep -q 'MenuBarIconTemplateOK' "$INSTALLER" || fail "install.sh does not install the OK menu bar template icon"
 grep -q 'MenuBarIconTemplateDown' "$INSTALLER" || fail "install.sh does not install the down menu bar template icon"
@@ -65,7 +65,7 @@ pass "installer wires menu helper"
 
 grep -q 'limpet-menu' "$UNINSTALLER" || fail "uninstall.sh does not remove the menu helper"
 grep -q 'com.georgeolaru.limpet.menu' "$UNINSTALLER" || fail "uninstall.sh does not unload/remove the menu LaunchAgent"
-grep -q 'Limpet Menu.app' "$UNINSTALLER" || fail "uninstall.sh does not remove the menu app bundle"
+grep -q 'Limpet.app' "$UNINSTALLER" || fail "uninstall.sh does not remove the menu app bundle"
 pass "uninstaller wires menu helper"
 
 for script in "$ROOT_DIR/limpet.sh" "$INSTALLER" "$UNINSTALLER" "$0"; do

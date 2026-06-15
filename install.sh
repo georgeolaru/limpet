@@ -4,7 +4,7 @@
 #
 # What it does:
 #   1. Copies limpet.sh to ~/.local/bin/ and makes it executable.
-#   2. Builds the menu-bar companion as ~/Applications/Limpet Menu.app.
+#   2. Builds the menu-bar app as ~/Applications/Limpet.app.
 #   3. Creates ~/.config/limpet/config.sh from the example (if it doesn't exist).
 #   4. Generates the plists with the correct paths in ~/Library/LaunchAgents/.
 #   5. Loads (bootstraps) the agents into launchd.
@@ -20,7 +20,7 @@ BIN_DIR="$HOME/.local/bin"
 SCRIPT_DST="$BIN_DIR/limpet.sh"
 MENU_SRC="$SRC_DIR/limpet-menu.swift"
 MENU_APP_DIR="$HOME/Applications"
-MENU_APP_DST="$MENU_APP_DIR/Limpet Menu.app"
+MENU_APP_DST="$MENU_APP_DIR/Limpet.app"
 MENU_EXEC_DST="$MENU_APP_DST/Contents/MacOS/limpet-menu"
 MENU_RESOURCES_DST="$MENU_APP_DST/Contents/Resources"
 MENU_ICON_SRC="$SRC_DIR/assets/AppIcon.icns"
@@ -39,6 +39,9 @@ MENU_PLIST_DST="$AGENTS_DIR/$MENU_LABEL.plist"
 LOG_DIR="$HOME/Library/Logs"
 
 echo "==> limpet installer"
+
+# Remove the pre-rename bundle if it exists (the app used to be "Limpet Menu.app").
+rm -rf "$MENU_APP_DIR/Limpet Menu.app" 2>/dev/null || true
 
 # 1. Script
 mkdir -p "$BIN_DIR"

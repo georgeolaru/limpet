@@ -73,7 +73,7 @@ bash install.sh
 
 The installer:
 - copies the script to `~/.local/bin/limpet.sh` (executable);
-- compiles the status item to `~/Applications/Limpet Menu.app` if `swiftc` is available;
+- compiles the status item to `~/Applications/Limpet.app` if `swiftc` is available;
 - installs the app icon into the menu-bar app bundle;
 - creates `~/.config/limpet/config.sh` from the example (if it doesn't exist);
 - generates the plists with real paths in `~/Library/LaunchAgents/`;
