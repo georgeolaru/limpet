@@ -1,9 +1,9 @@
 #!/bin/bash
 # =============================================================================
-# uninstall.sh - opreste si dezinstaleaza limpet.
+# uninstall.sh - stops and uninstalls limpet.
 #
-# Pastreaza configul si logurile (ca sa nu pierzi setarile). Sterge doar
-# agentul si scriptul instalat. Ruleaza cu --purge ca sa stergi si config+loguri.
+# Keeps the config and the logs (so you don't lose your settings). Removes only
+# the agent and the installed script. Run with --purge to also delete config+logs.
 # =============================================================================
 set -e
 
@@ -37,7 +37,7 @@ if [ "${1:-}" = "--purge" ]; then
         "$LOG_DIR/limpet-menu.out.log" "$LOG_DIR/limpet-menu.err.log"
   echo "  - removed logs"
 else
-  echo "  - config & logs pastrate (ruleaza cu --purge ca sa le stergi)"
+  echo "  - config & logs kept (run with --purge to delete them)"
 fi
 
 echo "Done."

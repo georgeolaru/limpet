@@ -1,14 +1,14 @@
 #!/bin/bash
 # =============================================================================
-# install.sh - instaleaza limpet ca LaunchAgent (pornire la login).
+# install.sh - installs limpet as a LaunchAgent (start at login).
 #
-# Ce face:
-#   1. Copiaza limpet.sh in ~/.local/bin/ si il face executabil.
-#   2. Creeaza ~/.config/limpet/config.sh din exemplu (daca nu exista).
-#   3. Genereaza plist-ul cu caile corecte in ~/Library/LaunchAgents/.
-#   4. Incarca (bootstrap) agentul in launchd.
+# What it does:
+#   1. Copies limpet.sh to ~/.local/bin/ and makes it executable.
+#   2. Creates ~/.config/limpet/config.sh from the example (if it doesn't exist).
+#   3. Generates the plist with the correct paths in ~/Library/LaunchAgents/.
+#   4. Loads (bootstraps) the agent into launchd.
 #
-# Ruleaza:  bash install.sh
+# Run:  bash install.sh
 # =============================================================================
 set -e
 
@@ -45,19 +45,19 @@ else
   echo "  - menu helper   : skipped (source missing)"
 fi
 
-# 3. Config (nu suprascrie unul existent)
+# 3. Config (don't overwrite an existing one)
 mkdir -p "$CONFIG_DIR"
 if [ -f "$CONFIG_DST" ]; then
-  echo "  - config        : $CONFIG_DST (exista deja, nu suprascriu)"
+  echo "  - config        : $CONFIG_DST (already exists, not overwriting)"
 else
   cp "$SRC_DIR/config.example.sh" "$CONFIG_DST"
-  echo "  - config        : $CONFIG_DST (creat din exemplu - EDITEAZA-L!)"
+  echo "  - config        : $CONFIG_DST (created from the example - EDIT IT!)"
 fi
 
-# 4. Loguri
+# 4. Logs
 mkdir -p "$LOG_DIR"
 
-# 5. Plist daemon generat cu caile reale
+# 5. Daemon plist generated with the real paths
 mkdir -p "$AGENTS_DIR"
 cat > "$PLIST_DST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -114,7 +114,7 @@ PLIST
   echo "  - MenuAgent     : $MENU_PLIST_DST"
 fi
 
-# 6. Incarca in launchd (modern: bootstrap; fallback: load -w)
+# 6. Load into launchd (modern: bootstrap; fallback: load -w)
 UID_NUM="$(id -u)"
 
 load_agent() {
@@ -142,7 +142,7 @@ load_agent() {
     return 0
   fi
 
-  echo "  - $name bootstrap a esuat, incerc 'launchctl load -w'..."
+  echo "  - $name bootstrap failed, trying 'launchctl load -w'..."
   launchctl load -w "$plist"
   echo "  - $name load -w OK"
 }
@@ -155,12 +155,12 @@ if [ -x "$MENU_DST" ]; then
 fi
 
 echo
-echo "Gata. Verifica starea cu:"
+echo "Done. Check the state with:"
 echo "  launchctl print gui/$UID_NUM/$LABEL | grep -E 'state|pid'"
 echo "  launchctl print gui/$UID_NUM/$MENU_LABEL | grep -E 'state|pid'"
 echo "  tail -f \"$LOG_DIR/limpet.log\""
 echo
 echo "IMPORTANT:"
-echo "  1. Editeaza configul:   $CONFIG_DST"
-echo "  2. Pune parola hotspot in Keychain (vezi README) sau in config."
-echo "  3. Conecteaza-te manual o data la hotspot ca sa fie salvat in macOS."
+echo "  1. Edit the config:   $CONFIG_DST"
+echo "  2. Put the hotspot password in the Keychain (see README) or in the config."
+echo "  3. Connect to the hotspot manually once so it gets saved in macOS."

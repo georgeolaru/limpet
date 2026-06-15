@@ -2,86 +2,86 @@
 # =============================================================================
 # limpet.sh
 #
-# Mentine MacBook-ul conectat la internet cat timp este deschis si treaz.
+# Keeps a MacBook connected to the internet while it is open and awake.
 #
-# Logica, pe scurt:
-#   1. Verifica daca exista internet REAL (nu doar IP / gateway).
-#   2. Daca merge -> nu face nimic (NU schimba reteaua).
-#   3. Daca nu merge -> incearca, in ordine:
-#        a) lasa macOS sa se reconecteze singur la o retea salvata;
-#        b) face un "Wi-Fi off/on" ca sa forteze re-asocierea;
-#        c) incearca retelele cunoscute preferate (acasa / birou);
-#        d) incearca hotspotul iPhone-ului (parola din Keychain).
-#   4. Dupa fiecare incercare reverifica internetul.
-#   5. Daca nimic nu merge -> retry cu backoff (nu loop agresiv).
-#   6. Scrie loguri clare despre ce a incercat si ce a obtinut.
+# Logic, in short:
+#   1. Check whether there is REAL internet (not just an IP / gateway).
+#   2. If it works -> do nothing (do NOT change the network).
+#   3. If it doesn't work -> try, in order:
+#        a) let macOS reconnect to a saved network on its own;
+#        b) cycle "Wi-Fi off/on" to force re-association;
+#        c) try the preferred known networks (home / office);
+#        d) try the iPhone hotspot (password from the Keychain).
+#   4. After each attempt, re-check the internet.
+#   5. If nothing works -> retry with backoff (no aggressive loop).
+#   6. Write clear logs about what it tried and what it got.
 #
-# Proiectat pentru macOS modern (testat pe macOS 26 / Tahoe, bash 3.2):
-#   - NU se bazeaza pe citirea SSID-ului (networksetup -getairportnetwork e
-#     nesigur / "redacted" pe macOS recent).
-#   - NU foloseste binarul "airport" (eliminat din macOS 14.4+).
-#   - Detecteaza interfata Wi-Fi automat (nu presupune en0).
-#   - Foloseste doar comenzi native macOS: networksetup, ifconfig, ipconfig,
+# Built for modern macOS (tested on macOS 26 / Tahoe, bash 3.2):
+#   - Does NOT rely on reading the SSID (networksetup -getairportnetwork is
+#     unreliable / "redacted" on recent macOS).
+#   - Does NOT use the "airport" binary (removed in macOS 14.4+).
+#   - Auto-detects the Wi-Fi interface (does not assume en0).
+#   - Uses only native macOS commands: networksetup, ifconfig, ipconfig,
 #     route, ping, curl, security, system_profiler.
 #
-# Moduri de rulare:
-#   limpet.sh                 -> ruleaza ca daemon (bucla cu backoff)
-#   limpet.sh --once          -> o singura verificare + remediere
-#   limpet.sh --check         -> doar verifica internetul (read-only)
-#   limpet.sh --status        -> afiseaza starea curenta (read-only)
-#   limpet.sh --scan          -> retele Wi-Fi vizibile (best-effort)
-#   limpet.sh --prefer-wifi-now -> daca esti pe hotspot, incearca Wi-Fi preferat
-#   limpet.sh --test-join SSID [parola]  -> testeaza conectarea manuala
+# Run modes:
+#   limpet.sh                 -> run as a daemon (loop with backoff)
+#   limpet.sh --once          -> a single check + remediation
+#   limpet.sh --check         -> just check the internet (read-only)
+#   limpet.sh --status        -> show the current state (read-only)
+#   limpet.sh --scan          -> visible Wi-Fi networks (best-effort)
+#   limpet.sh --prefer-wifi-now -> if on hotspot, try preferred Wi-Fi
+#   limpet.sh --test-join SSID [password]  -> test connecting manually
 #   limpet.sh --help
 # =============================================================================
 
 # ------------------------------------------------------------------------------
-# 1) VALORI IMPLICITE (pot fi suprascrise din fisierul de config)
+# 1) DEFAULT VALUES (can be overridden from the config file)
 # ------------------------------------------------------------------------------
-# Retele cunoscute, in ordinea preferintei (acasa, birou ...). Trebuie sa fie
-# deja salvate in macOS (conectate manual o data).
-PREFERRED_SSIDS=( "HomeWiFi" "OfficeWiFi" )
+# Known networks, in order of preference (home, office ...). They must already
+# be saved in macOS (connected manually once).
+PREFERRED_SSIDS=( "Home_WiFi" "Office_WiFi" )
 
-# Hotspotul iPhone-ului.
-HOTSPOT_SSID="iPhone"
-HOTSPOT_PASSWORD=""                       # lasa gol; ideal pui parola in Keychain
+# The iPhone hotspot.
+HOTSPOT_SSID="My iPhone"
+HOTSPOT_PASSWORD=""                       # leave empty; ideally put the password in the Keychain
 HOTSPOT_KEYCHAIN_SERVICE="limpet-hotspot"
-TRY_REMEMBERED_HOTSPOT=1                   # 1 = incearca si fara parola (retea salvata)
+TRY_REMEMBERED_HOTSPOT=1                   # 1 = also try without a password (saved network)
 
-# Daca esti pe hotspot, incearca periodic sa revii pe Wi-Fi real preferat.
-# Pe macOS recent SSID-ul poate fi "<redacted>", asa ca detectam iPhone hotspot
-# si dupa gateway-ul standard folosit de Personal Hotspot (172.20.10.x).
+# If you're on hotspot, periodically try to move back to the preferred real Wi-Fi.
+# On recent macOS the SSID may be "<redacted>", so we also detect the iPhone hotspot
+# by the standard gateway used by Personal Hotspot (172.20.10.x).
 PREFER_WIFI_OVER_HOTSPOT=1
-PREFER_WIFI_CHECK_INTERVAL=300             # cat de des incearca upgrade-ul de pe hotspot
+PREFER_WIFI_CHECK_INTERVAL=300             # how often to try the upgrade off hotspot
 HOTSPOT_GATEWAY_PREFIXES=( "172.20.10." )
 
-# Interfata Wi-Fi. Gol = auto-detect din networksetup -listallhardwareports.
+# Wi-Fi interface. Empty = auto-detect from networksetup -listallhardwareports.
 WIFI_INTERFACE=""
 
-# Intervale / timeouts (secunde).
-CHECK_INTERVAL=45                          # cat de des verifica cand totul e ok
-MAX_INTERVAL=300                           # plafonul de backoff la esec repetat
-ASSOC_TIMEOUT=12                           # asteptare link+IP dupa join
-INTERNET_TIMEOUT=20                        # asteptare internet dupa join
+# Intervals / timeouts (seconds).
+CHECK_INTERVAL=45                          # how often to check when everything is ok
+MAX_INTERVAL=300                           # the backoff cap on repeated failure
+ASSOC_TIMEOUT=12                           # wait for link+IP after a join
+INTERNET_TIMEOUT=20                        # wait for internet after a join
 CURL_TIMEOUT=5
 PING_TIMEOUT=2
 
 # Logging.
 LOG_FILE="$HOME/Library/Logs/limpet.log"
-MAX_LOG_BYTES=1048576                      # 1 MB -> rotatie simpla (pastreaza .1)
-VERBOSE=0                                  # 1 = scrie si pe stderr (util la --once)
+MAX_LOG_BYTES=1048576                      # 1 MB -> simple rotation (keeps .1)
+VERBOSE=0                                  # 1 = also write to stderr (useful with --once)
 
-# Comportament scanare.
-USE_SCAN=1                                 # 1 = best-effort scan ca sa evite join inutil
+# Scan behavior.
+USE_SCAN=1                                 # 1 = best-effort scan to avoid a pointless join
 
-# Tinte pentru testul de conectivitate.
+# Targets for the connectivity test.
 PING_HOSTS=( "1.1.1.1" "8.8.8.8" )
 CAPTIVE_URL="http://captive.apple.com/hotspot-detect.html"
 CAPTIVE_EXPECT="Success"
-HTTPS_FALLBACK_URL="https://1.1.1.1"       # HTTPS direct pe IP (nu necesita DNS)
+HTTPS_FALLBACK_URL="https://1.1.1.1"       # HTTPS directly to IP (no DNS needed)
 
 # ------------------------------------------------------------------------------
-# 2) INCARCA CONFIGURAREA UTILIZATORULUI (suprascrie valorile de mai sus)
+# 2) LOAD THE USER CONFIGURATION (overrides the values above)
 # ------------------------------------------------------------------------------
 CONFIG_FILE="${LIMPET_CONFIG:-$HOME/.config/limpet/config.sh}"
 if [ -f "$CONFIG_FILE" ]; then
@@ -89,13 +89,13 @@ if [ -f "$CONFIG_FILE" ]; then
   . "$CONFIG_FILE"
 fi
 
-# Coduri de stare pentru testul de internet.
-INET_OK=0        # internet real
-INET_DOWN=1      # nicio conectivitate
-INET_CAPTIVE=2   # conectat, dar captive portal / fara internet real
+# Status codes for the internet test.
+INET_OK=0        # real internet
+INET_DOWN=1      # no connectivity
+INET_CAPTIVE=2   # connected, but captive portal / no real internet
 
 # ------------------------------------------------------------------------------
-# 3) UTILITARE: logging
+# 3) UTILITIES: logging
 # ------------------------------------------------------------------------------
 log() {
   local ts
@@ -117,7 +117,7 @@ rotate_log_if_big() {
 }
 
 # ------------------------------------------------------------------------------
-# 4) UTILITARE: interfata Wi-Fi / stare link
+# 4) UTILITIES: Wi-Fi interface / link state
 # ------------------------------------------------------------------------------
 detect_iface() {
   if [ -n "$WIFI_INTERFACE" ]; then
@@ -128,17 +128,17 @@ detect_iface() {
     | awk '/Hardware Port: (Wi-Fi|AirPort)/{getline; print $2; exit}'
 }
 
-# Link Wi-Fi activ (asociat la o retea, indiferent de internet)?
+# Active Wi-Fi link (associated to a network, regardless of internet)?
 link_active() {
   ifconfig "$IFACE" 2>/dev/null | grep -q "status: active"
 }
 
-# Are IP pe interfata?
+# Does the interface have an IP?
 has_ip() {
   ipconfig getifaddr "$IFACE" >/dev/null 2>&1
 }
 
-# Interfata folosita pentru ruta default (en0, en7 ethernet, etc.) - doar info.
+# Interface used for the default route (en0, en7 ethernet, etc.) - info only.
 default_iface() {
   route -n get default 2>/dev/null | awk '/interface:/{print $2; exit}'
 }
@@ -147,7 +147,7 @@ default_gateway() {
   route -n get default 2>/dev/null | awk '/gateway:/{print $2; exit}'
 }
 
-# SSID curent - BEST EFFORT. Pe macOS recent poate fi gol/"redacted".
+# Current SSID - BEST EFFORT. On recent macOS it may be empty/"redacted".
 current_ssid() {
   local s
   s=$(networksetup -getairportnetwork "$IFACE" 2>/dev/null \
@@ -199,7 +199,7 @@ ensure_wifi_on() {
   esac
 }
 
-# Off/On rapid ca sa forteze re-asocierea (repara multe cazuri "conectat dar mort").
+# Quick off/on to force re-association (fixes many "connected but dead" cases).
 wifi_bounce() {
   log "Cycling Wi-Fi power to force reassociation."
   networksetup -setairportpower "$IFACE" off >/dev/null 2>&1
@@ -219,13 +219,13 @@ wait_for_link() {
 }
 
 # ------------------------------------------------------------------------------
-# 5) TESTUL DE INTERNET (minim doua metode + detectie captive portal)
-#    Returneaza: 0 = internet real, 1 = down, 2 = captive portal.
+# 5) THE INTERNET TEST (at least two methods + captive-portal detection)
+#    Returns: 0 = real internet, 1 = down, 2 = captive portal.
 # ------------------------------------------------------------------------------
 probe_internet() {
   local body l3=1 h
 
-  # (a) Reachability L3, fara DNS: ping direct pe IP-uri stabile.
+  # (a) L3 reachability, no DNS: ping stable IPs directly.
   for h in "${PING_HOSTS[@]}"; do
     if ping -c1 -t"$PING_TIMEOUT" "$h" >/dev/null 2>&1; then
       l3=0
@@ -233,16 +233,16 @@ probe_internet() {
     fi
   done
 
-  # (b) Test HTTP captive-portal Apple (exercita si DNS, si HTTP).
+  # (b) Apple captive-portal HTTP test (exercises both DNS and HTTP).
   body=$(curl -s -m "$CURL_TIMEOUT" "$CAPTIVE_URL" 2>/dev/null)
   if [ -n "$body" ]; then
     case "$body" in
-      *"$CAPTIVE_EXPECT"*) return $INET_OK ;;     # raspuns corect -> internet real
-      *)                   return $INET_CAPTIVE ;; # alt continut -> captive portal
+      *"$CAPTIVE_EXPECT"*) return $INET_OK ;;     # correct response -> real internet
+      *)                   return $INET_CAPTIVE ;; # other content -> captive portal
     esac
   fi
 
-  # (c) HTTP a esuat (DNS rupt sau apple blocat). Daca avem L3 + HTTPS pe IP -> ok.
+  # (c) HTTP failed (DNS broken or Apple blocked). If we have L3 + HTTPS over IP -> ok.
   if [ "$l3" -eq 0 ] && curl -fs -m "$CURL_TIMEOUT" -o /dev/null "$HTTPS_FALLBACK_URL" 2>/dev/null; then
     return $INET_OK
   fi
@@ -251,11 +251,11 @@ probe_internet() {
 }
 
 # ------------------------------------------------------------------------------
-# 6) SCANARE (best-effort). Pe macOS recent poate fi goala -> atunci incercam orb.
+# 6) SCANNING (best-effort). On recent macOS it may be empty -> then we try blind.
 # ------------------------------------------------------------------------------
 scan_networks() {
   [ "$USE_SCAN" -eq 1 ] || return 0
-  # Extrage numele retelelor: o linie "Nume:" urmata imediat de "PHY Mode:".
+  # Extract network names: a "Name:" line immediately followed by "PHY Mode:".
   system_profiler SPAirPortDataType 2>/dev/null | awk '
     /Current Network Information:|Other Local Wi-Fi Networks:/ { grab=1 }
     grab {
@@ -263,8 +263,8 @@ scan_networks() {
         name = prev
         sub(/^[[:space:]]+/, "", name)
         sub(/:[[:space:]]*$/, "", name)
-        # Pe macOS recent, fara permisiune Location, numele apar "<redacted>".
-        # Le ignoram -> lista devine goala -> incercam retelele cunoscute "orb".
+        # On recent macOS, without Location permission, names show up as "<redacted>".
+        # We ignore them -> the list becomes empty -> we try known networks "blind".
         if (name != "" && name != "<redacted>") print name
       }
       prev = $0
@@ -273,12 +273,12 @@ scan_networks() {
 
 network_visible() {
   local ssid="$1" list="$2"
-  [ -z "$list" ] && return 0                  # scan necunoscut -> permite incercarea
+  [ -z "$list" ] && return 0                  # unknown scan -> allow the attempt
   printf '%s\n' "$list" | grep -Fxq "$ssid"
 }
 
 # ------------------------------------------------------------------------------
-# 7) CONECTARE + VERIFICARE
+# 7) CONNECT + VERIFY
 # ------------------------------------------------------------------------------
 try_join_and_verify() {
   local ssid="$1" pass="$2" out rc i=0
@@ -402,12 +402,12 @@ prefer_wifi_over_hotspot() {
 }
 
 # ------------------------------------------------------------------------------
-# 8) REMEDIERE (rulata DOAR cand nu exista internet)
+# 8) REMEDIATION (run ONLY when there is no internet)
 # ------------------------------------------------------------------------------
 remediate() {
   ensure_wifi_on
 
-  # Faza A: lasa macOS sa se auto-reconecteze la o retea salvata, apoi reverifica.
+  # Phase A: let macOS auto-reconnect to a saved network, then re-check.
   if wait_for_link 6; then
     if probe_internet; then
       log "Recovered via existing/auto-joined network."
@@ -415,23 +415,23 @@ remediate() {
     fi
   fi
 
-  # Faza B: bounce Wi-Fi o data (repara multe "conectat dar fara internet").
+  # Phase B: bounce Wi-Fi once (fixes many "connected but no internet").
   wifi_bounce
   if probe_internet; then
     log "Recovered after Wi-Fi power cycle."
     return 0
   fi
 
-  # Faza C: scan best-effort + join explicit.
+  # Phase C: best-effort scan + explicit join.
   local visible
   visible=$(scan_networks)
   log_visible_networks "$visible"
 
-  # C1: retele preferate cunoscute, in ordinea preferintei (folosesc parola salvata).
+  # C1: known preferred networks, in order of preference (use the saved password).
   try_preferred_networks "$visible" && return 0
 
-  # C2: hotspot iPhone (ultima solutie). Instant Hotspot poate sa nu apara in scan,
-  # asa ca incercam oricum.
+  # C2: iPhone hotspot (last resort). Instant Hotspot may not appear in the scan,
+  # so we try anyway.
   if [ -n "$HOTSPOT_SSID" ]; then
     if ! network_visible "$HOTSPOT_SSID" "$visible"; then
       log "Hotspot '$HOTSPOT_SSID' not seen in scan (instant hotspot may be hidden); trying anyway."
@@ -443,7 +443,7 @@ remediate() {
 }
 
 # ------------------------------------------------------------------------------
-# 9) BUCLA PRINCIPALA (daemon) cu backoff exponential
+# 9) MAIN LOOP (daemon) with exponential backoff
 # ------------------------------------------------------------------------------
 main_loop() {
   log "limpet started (iface=$IFACE, interval=${CHECK_INTERVAL}s, config=$CONFIG_FILE)."
@@ -454,7 +454,7 @@ main_loop() {
     probe_internet; rc=$?
 
     if [ "$rc" -eq "$INET_OK" ]; then
-      # Internet ok -> NU atingem reteaua. Logam doar la tranzitie (loguri curate).
+      # Internet ok -> do NOT touch the network. Log only on transition (clean logs).
       if [ "$prev" != "ok" ]; then
         log "Internet OK (route=$(default_iface), ssid=$(current_ssid_or_unknown))."
       fi
@@ -492,7 +492,7 @@ main_loop() {
 }
 
 # ------------------------------------------------------------------------------
-# 10) LOCK: o singura instanta (pentru daemon / --once)
+# 10) LOCK: a single instance (for daemon / --once)
 # ------------------------------------------------------------------------------
 LOCK_DIR=""
 acquire_lock() {
@@ -502,13 +502,13 @@ acquire_lock() {
     trap 'release_lock' EXIT INT TERM
     return 0
   fi
-  # Exista lock - mai e viu procesul?
+  # A lock exists - is the process still alive?
   local oldpid
   oldpid=$(cat "$LOCK_DIR/pid" 2>/dev/null)
   if [ -n "$oldpid" ] && kill -0 "$oldpid" 2>/dev/null; then
     return 1
   fi
-  # Lock vechi (stale) -> il preluam.
+  # Stale lock -> we take it over.
   rm -rf "$LOCK_DIR" 2>/dev/null
   if mkdir "$LOCK_DIR" 2>/dev/null; then
     printf '%s' "$$" > "$LOCK_DIR/pid" 2>/dev/null
@@ -526,7 +526,7 @@ usage() {
 }
 
 # ------------------------------------------------------------------------------
-# 11) PORNIRE
+# 11) STARTUP
 # ------------------------------------------------------------------------------
 mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null
 IFACE="$(detect_iface)"
@@ -570,10 +570,10 @@ case "${1:-}" in
       echo "$out"
     else
       echo "(no usable scan results on this macOS)"
-      echo "Numele retelelor sunt probabil ascunse ('<redacted>') fara permisiune"
-      echo "Location Services. Nu e o problema: daemonul va incerca retelele cunoscute"
-      echo "din config 'orb' (oricum cea mai robusta cale). Daca vrei optimizarea prin"
-      echo "scan, activeaza Location Services pentru procesul care ruleaza scriptul."
+      echo "Network names are probably hidden ('<redacted>') without Location"
+      echo "Services permission. That's not a problem: the daemon will try the known"
+      echo "networks from the config 'blind' (the most robust path anyway). If you want"
+      echo "the scan optimization, enable Location Services for the process running the script."
     fi
     exit 0
     ;;

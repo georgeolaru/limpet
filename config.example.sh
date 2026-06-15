@@ -1,63 +1,64 @@
 # =============================================================================
-# config.example.sh  ->  copiaza in  ~/.config/limpet/config.sh
+# config.example.sh  ->  copy to  ~/.config/limpet/config.sh
 #
-# Acest fisier este "sourced" (inclus) de limpet.sh, deci este shell
-# normal. Pune AICI doar valorile pe care vrei sa le schimbi fata de implicit.
-# NU pune parole sensibile in clar daca poti evita -> foloseste Keychain
-# (vezi README, sectiunea Keychain).
+# This file is "sourced" (included) by limpet.sh, so it is a normal shell
+# file. Put ONLY the values you want to change from the defaults here.
+# Do NOT keep sensitive passwords in cleartext if you can avoid it -> use the
+# Keychain (see the README, Keychain section).
 # =============================================================================
 
-# --- Retele cunoscute, in ordinea preferintei (acasa, birou, etc.) ----------
-# Trebuie sa fie deja salvate in macOS (te-ai conectat manual la ele macar o data,
-# ca sa fie memorate cu parola). Editeaza cu numele tale reale.
-PREFERRED_SSIDS=( "Numele_Wifi_Acasa" "Numele_Wifi_Birou" )
+# --- Known networks, in order of preference (home, office, etc.) ------------
+# They must already be saved in macOS (you connected to them manually at least
+# once, so they're remembered with their password). Edit with your real names.
+PREFERRED_SSIDS=( "Home_WiFi" "Office_WiFi" )
 
-# --- Hotspot iPhone ---------------------------------------------------------
-# SSID-ul hotspotului = de obicei numele iPhone-ului
+# --- iPhone hotspot ---------------------------------------------------------
+# The hotspot SSID = usually the iPhone's name
 # (Settings -> General -> About -> Name).
-HOTSPOT_SSID="iPhone-ul meu"
+HOTSPOT_SSID="My iPhone"
 
-# Parola hotspotului:
-#   - RECOMANDAT: las-o goala aici si pune-o in Keychain (vezi README).
-#   - Alternativ (mai putin sigur): o poti pune direct aici intre ghilimele.
+# Hotspot password:
+#   - RECOMMENDED: leave it empty here and put it in the Keychain (see README).
+#   - Alternatively (less secure): you can put it directly here, in quotes.
 HOTSPOT_PASSWORD=""
 
-# Numele "service" sub care e salvata parola in Keychain (lasa asa daca ai
-# urmat instructiunile din README).
+# The "service" name under which the password is saved in the Keychain (leave
+# as-is if you followed the README instructions).
 HOTSPOT_KEYCHAIN_SERVICE="limpet-hotspot"
 
-# Incearca hotspotul si fara parola (daca reteaua e deja salvata in macOS). 1=da.
+# Also try the hotspot without a password (if the network is already saved in
+# macOS). 1=yes.
 TRY_REMEMBERED_HOTSPOT=1
 
-# Cand esti pe hotspot si internetul merge, incearca periodic sa revii pe una
-# dintre retelele din PREFERRED_SSIDS. Util cand ajungi acasa/la birou.
+# When you're on hotspot and the internet works, periodically try to move back
+# to one of the PREFERRED_SSIDS networks. Useful when you get home/to the office.
 PREFER_WIFI_OVER_HOTSPOT=1
 PREFER_WIFI_CHECK_INTERVAL=300
 
-# iPhone Personal Hotspot foloseste de obicei gateway in 172.20.10.x. Asta ne
-# ajuta sa detectam hotspotul chiar cand macOS ascunde SSID-ul ca "<redacted>".
+# The iPhone Personal Hotspot usually uses a gateway in 172.20.10.x. This helps
+# us detect the hotspot even when macOS hides the SSID as "<redacted>".
 HOTSPOT_GATEWAY_PREFIXES=( "172.20.10." )
 
-# --- Interfata Wi-Fi --------------------------------------------------------
-# Lasa gol pentru auto-detect (recomandat). Pune "en0" doar daca vrei s-o fortezi.
+# --- Wi-Fi interface --------------------------------------------------------
+# Leave empty for auto-detect (recommended). Set "en0" only to force it.
 WIFI_INTERFACE=""
 
-# --- Intervale / timing (secunde) -------------------------------------------
-CHECK_INTERVAL=45      # cat de des verifica cand internetul merge
-MAX_INTERVAL=300       # plafonul de backoff cand nu gaseste nimic
-ASSOC_TIMEOUT=12       # cat asteapta link+IP dupa o conectare
-INTERNET_TIMEOUT=20    # cat asteapta internetul dupa o conectare
+# --- Intervals / timing (seconds) -------------------------------------------
+CHECK_INTERVAL=45      # how often it checks when the internet works
+MAX_INTERVAL=300       # the backoff cap when it finds nothing
+ASSOC_TIMEOUT=12       # how long it waits for link+IP after a connection
+INTERNET_TIMEOUT=20    # how long it waits for the internet after a connection
 CURL_TIMEOUT=5
 PING_TIMEOUT=2
 
 # --- Logging ----------------------------------------------------------------
 LOG_FILE="$HOME/Library/Logs/limpet.log"
-MAX_LOG_BYTES=1048576  # 1 MB, dupa care roteste (pastreaza un .1)
+MAX_LOG_BYTES=1048576  # 1 MB, after which it rotates (keeps a .1)
 
-# --- Avansat ----------------------------------------------------------------
-USE_SCAN=1             # 1 = incearca scan best-effort inainte de join
+# --- Advanced ---------------------------------------------------------------
+USE_SCAN=1             # 1 = try a best-effort scan before a join
 
-# Tinte pentru testul de internet (de obicei nu trebuie schimbate).
+# Targets for the internet test (usually no need to change these).
 PING_HOSTS=( "1.1.1.1" "8.8.8.8" )
 CAPTIVE_URL="http://captive.apple.com/hotspot-detect.html"
 CAPTIVE_EXPECT="Success"
