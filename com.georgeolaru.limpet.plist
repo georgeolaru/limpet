@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!--
+    LaunchAgent pentru limpet (rulare per-utilizator, la login).
+    NOTA: install.sh genereaza automat o copie cu caile corecte in
+    ~/Library/LaunchAgents/. Acest fisier e referinta / fallback manual.
+    Daca il folosesti manual, inlocuieste /Users/georgeolaru cu home-ul tau.
+  -->
+  <key>Label</key>
+  <string>com.georgeolaru.limpet</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/georgeolaru/.local/bin/limpet.sh</string>
+  </array>
+
+  <!-- Porneste la login si se relanseaza daca procesul moare. -->
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+
+  <!-- Daca s-ar relansa rapid in bucla, asteapta minim 10s intre porniri. -->
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <!-- Prioritate redusa (background) ca sa nu manance CPU/baterie. -->
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>LowPriorityIO</key>
+  <true/>
+
+  <!-- stdout/stderr ale daemonului (separate de logul aplicatiei). -->
+  <key>StandardOutPath</key>
+  <string>/Users/georgeolaru/Library/Logs/limpet.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/georgeolaru/Library/Logs/limpet.err.log</string>
+</dict>
+</plist>

@@ -1,0 +1,8 @@
+# Claude Code / agent scaffolding (contains local runbook + private host notes)
+.claude/
+
+# macOS
+.DS_Store
+
+# Logs / build artifacts
+*.log
