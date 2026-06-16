@@ -13,6 +13,7 @@
   <img src="https://img.shields.io/badge/tested%20on-macOS%2026%20Tahoe-0A42D3" alt="Tested on macOS 26 Tahoe">
   <img src="https://img.shields.io/badge/dependencies-none-1D9E6A" alt="No dependencies">
   <img src="https://img.shields.io/badge/menu%20bar-native%20Swift-0A42D3" alt="Native Swift menu bar">
+  <img src="https://img.shields.io/badge/install-brew%20--cask-1B2330?logo=homebrew&logoColor=white" alt="Install via Homebrew">
 </p>
 
 <p align="center">
@@ -87,6 +88,28 @@ hotspot unavailable · hotspot present but no internet · captive portal.
 
 ## Install
 
+### Homebrew (recommended)
+
+```bash
+brew install --cask georgeolaru/tap/limpet   # notarized menu-bar app + the limpet CLI/daemon
+brew services start limpet                    # start the background agent (per-user, no sudo)
+```
+
+`brew install --cask` installs the signed, **Apple-notarized** Limpet.app and pulls in the
+`limpet` formula (the daemon + `limpet` command). `brew services start limpet` runs the agent
+in your login session — the same per-user LaunchAgent the script uses, no `sudo`. Later:
+`brew upgrade` to update, `brew services stop|restart limpet` to control the agent.
+
+> **CLI / headless only?** Skip the app — `brew install georgeolaru/tap/limpet` installs just
+> the daemon and the `limpet` command, then `brew services start limpet`.
+>
+> Wherever this README shows `~/.local/bin/limpet.sh`, a Homebrew install puts the same command
+> on your `PATH` simply as `limpet`.
+
+### From source (`install.sh`)
+
+No Homebrew needed — this compiles the menu-bar app locally with `swiftc`:
+
 ```bash
 cd limpet
 bash install.sh
@@ -100,6 +123,10 @@ The installer:
 - creates `~/.config/limpet/config.sh` from the example (if it doesn't already exist);
 - generates the LaunchAgents with real paths in `~/Library/LaunchAgents/`;
 - loads them into `launchd` (the agent + menu bar start immediately, and at every login).
+
+> **Pick one path.** Don't run the Homebrew install *and* `install.sh` — each starts its own
+> background agent and menu-bar app, and two agents will fight over Wi-Fi. To switch, uninstall
+> the other first.
 
 **Then, one-time setup** — see [Set up your phone's hotspot](#set-up-your-phones-hotspot):
 
@@ -275,6 +302,9 @@ launchctl kickstart -k gui/$(id -u)/com.georgeolaru.limpet
 
 ## Start / stop / check
 
+> **Homebrew install?** Use `brew services start|stop|restart limpet`. The `launchctl` commands
+> below are for the from-source (`install.sh`) install.
+
 ```bash
 # Start (or restart) on demand
 launchctl kickstart -k gui/$(id -u)/com.georgeolaru.limpet
@@ -393,6 +423,17 @@ Common problems:
 
 ## Uninstall
 
+**Homebrew:**
+
+```bash
+brew services stop limpet
+brew uninstall --cask georgeolaru/tap/limpet   # remove the menu-bar app
+brew uninstall limpet                           # remove the daemon + CLI
+# add `--zap` to the cask uninstall to also delete config + logs
+```
+
+**From source:**
+
 ```bash
 bash uninstall.sh           # stops + removes the agent and the script (keeps config + logs)
 bash uninstall.sh --purge   # removes everything, including config and logs
@@ -418,8 +459,10 @@ bash uninstall.sh --purge   # removes everything, including config and logs
 | `limpet.sh` | The main script (agent + diagnostic commands). |
 | `limpet-menu.swift` | Native menu-bar companion (status + quick actions). |
 | `config.example.sh` | Config template → copied to `~/.config/limpet/config.sh`. |
-| `install.sh` | Installs and starts everything. |
+| `install.sh` | Installs and starts everything (from-source path). |
 | `uninstall.sh` | Stops and uninstalls (`--purge` also removes config + logs). |
+| `release-app.sh` | Builds, signs, notarizes, and zips the menu-bar app for the Homebrew Cask. |
+| `RELEASING-app.md` | How to cut a signed Cask release (Developer ID + `notarytool` setup). |
 | `com.georgeolaru.limpet.plist` | LaunchAgent reference (`install.sh` generates one with correct paths). |
 | `assets/limpet-icon.png` | App icon source (1254×1254). |
 | `assets/limpet-icon.svg` | Pixel-exact SVG wrapper for the icon source. |
