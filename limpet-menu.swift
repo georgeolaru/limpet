@@ -260,7 +260,7 @@ private final class HotspotPane: SettingsPane {
         hotspotPopup.action = #selector(hotspotChanged)
         hotspotPopup.widthAnchor.constraint(equalToConstant: 260).isActive = true
         addRow(controlBlock("Hotspot network", hotspotPopup,
-                            "Usually your iPhone’s name — Settings ▸ General ▸ About ▸ Name."))
+                            "Your phone’s hotspot name — on iPhone, Settings ▸ General ▸ About ▸ Name."))
 
         passwordField.placeholderString = "Hotspot password"
         passwordField.target = self
@@ -354,7 +354,7 @@ private final class HotspotPane: SettingsPane {
     @objc private func testHotspot() {
         testButton.isEnabled = false
         testResultLabel.textColor = .secondaryLabelColor
-        testResultLabel.stringValue = "Testing… open Personal Hotspot on the phone and keep it nearby."
+        testResultLabel.stringValue = "Testing… turn the phone’s hotspot on and keep it nearby."
         workQueue.async {
             let result = Shell.run(scriptPath, ["--test-hotspot"])
             let reason = Self.testFailureReason(from: result.output)
@@ -376,7 +376,7 @@ private final class HotspotPane: SettingsPane {
         if lower.contains("no hotspot configured") { return "Pick your hotspot network first." }
         if lower.contains("no wi-fi interface") { return "No Wi-Fi interface found." }
         if lower.contains("could not find network") || lower.contains("not in range") {
-            return "Hotspot not found — turn Personal Hotspot ON and keep the phone nearby and awake."
+            return "Hotspot not found — turn the phone’s hotspot ON and keep it nearby and awake."
         }
         if lower.contains("captive") { return "That network needs a login (captive portal)." }
         if lower.contains("no internet") { return "Joined the hotspot, but it has no internet — check the phone’s data." }
@@ -582,17 +582,12 @@ private final class SettingsWindowController: NSWindowController {
 private struct GuardianStatus {
     let internet: String
     let interface: String
-    let wifiPower: String
     let ipAddress: String
     let defaultRoute: String
-    let ssid: String
     let configFile: String
     let logFile: String
     let agentState: String
-    let agentPid: String
-    let lastLogLine: String
     let rawStatus: String
-    let checkedAt: Date
 }
 
 private final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -727,17 +722,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         return GuardianStatus(
             internet: fields["Internet"] ?? (statusResult.exitCode == 0 ? "Unknown" : "Unavailable"),
             interface: fields["Wi-Fi interface"] ?? "<unknown>",
-            wifiPower: fields["Wi-Fi power"] ?? "<unknown>",
             ipAddress: fields["IP address"] ?? "<unknown>",
             defaultRoute: fields["Default route"] ?? "<unknown>",
-            ssid: fields["SSID (best eff.)"] ?? "<unknown>",
             configFile: fields["Config file"] ?? configPath,
             logFile: logFile,
             agentState: agent.state,
-            agentPid: agent.pid,
-            lastLogLine: lastLine(in: logFile),
-            rawStatus: statusResult.output.trimmingCharacters(in: .whitespacesAndNewlines),
-            checkedAt: Date()
+            rawStatus: statusResult.output.trimmingCharacters(in: .whitespacesAndNewlines)
         )
     }
 
@@ -772,13 +762,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         return (state, pid)
     }
 
-    private func lastLine(in path: String) -> String {
-        guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
-            return "No log yet."
-        }
-        return contents.split(whereSeparator: \.isNewline).last.map(String.init) ?? "No log yet."
-    }
-
     private func updateStatusButton(_ status: GuardianStatus) {
         guard let button = statusItem.button else { return }
         button.imagePosition = .imageOnly
@@ -795,15 +778,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let status = currentStatus
         menu.addItem(statusHeaderItem(status))
-        menu.addItem(disabledItem("Agent: \(status?.agentState ?? "checking") \(pidSuffix(status?.agentPid))"))
-        menu.addItem(disabledItem("Wi-Fi: \(status?.interface ?? "-") / \(status?.wifiPower ?? "-")"))
-        menu.addItem(disabledItem("SSID: \(status?.ssid ?? "-")"))
-
-        if let status {
-            menu.addItem(NSMenuItem.separator())
-            menu.addItem(disabledItem("Last log: \(shorten(status.lastLogLine, limit: 96))"))
-            menu.addItem(disabledItem("Checked: \(timeString(status.checkedAt))"))
-        }
 
         if !lastActionMessage.isEmpty {
             menu.addItem(NSMenuItem.separator())
@@ -818,11 +792,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem.separator())
         menu.addItem(actionItem("Settings…", #selector(openSettings(_:))))
         menu.addItem(actionItem("Open Log", #selector(openLog(_:))))
-        menu.addItem(actionItem("Show Details", #selector(showDetails(_:))))
 
         menu.addItem(NSMenuItem.separator())
         menu.addItem(actionItem("Quit Limpet", #selector(quitMenu(_:))))
-        menu.addItem(actionItem("Uninstall Limpet…", #selector(uninstall(_:))))
     }
 
     private func statusHeaderItem(_ status: GuardianStatus?) -> NSMenuItem {
@@ -841,11 +813,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         item.attributedTitle = title
         item.isEnabled = false
         return item
-    }
-
-    private func pidSuffix(_ pid: String?) -> String {
-        guard let pid, pid != "-" else { return "" }
-        return "(pid \(pid))"
     }
 
     private func disabledItem(_ title: String) -> NSMenuItem {
@@ -907,28 +874,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsController?.show()
     }
 
-    @objc private func showDetails(_ sender: NSMenuItem) {
-        let status = currentStatus
-        let alert = NSAlert()
-        alert.messageText = "Limpet"
-        alert.informativeText = [
-            status?.rawStatus ?? "Status unavailable.",
-            "",
-            "Agent: \(status?.agentState ?? "unknown") \(pidSuffix(status?.agentPid))",
-            "Last log: \(status?.lastLogLine ?? "No log yet.")"
-        ].joined(separator: "\n")
-        alert.addButton(withTitle: "OK")
-        NSApp.activate(ignoringOtherApps: true)
-        alert.runModal()
-    }
-
     @objc private func openLog(_ sender: NSMenuItem) {
         let path = currentStatus?.logFile ?? defaultLogPath
         NSWorkspace.shared.open(URL(fileURLWithPath: path))
-    }
-
-    @objc private func uninstall(_ sender: NSMenuItem) {
-        performUninstall()
     }
 
     @objc private func quitMenu(_ sender: NSMenuItem) {
@@ -946,13 +894,6 @@ private func shorten(_ text: String, limit: Int) -> String {
     guard text.count > limit else { return text }
     let end = text.index(text.startIndex, offsetBy: max(0, limit - 3))
     return String(text[..<end]) + "..."
-}
-
-private func timeString(_ date: Date) -> String {
-    let formatter = DateFormatter()
-    formatter.dateStyle = .none
-    formatter.timeStyle = .medium
-    return formatter.string(from: date)
 }
 
 private let app = NSApplication.shared
