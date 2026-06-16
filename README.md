@@ -1,70 +1,91 @@
-# Limpet
+<p align="center">
+  <img src="assets/limpet-icon.png" alt="Limpet" width="120" height="120">
+</p>
 
-> Keep your laptop online in your bag, using your phone hotspot after it leaves Wi-Fi.
+<h1 align="center">Limpet</h1>
 
-A small, robust macOS script that keeps a MacBook connected to the internet while it
-is open and awake (e.g. in a backpack, with Amphetamine running). If it loses
-connectivity, it tries to reconnect to known networks and, as a last resort, to the
-**iPhone Personal Hotspot** — automatically, with no clicking in the UI.
+<p align="center">
+  <b>Keep your Mac online when it leaves Wi-Fi — by failing over to your phone's hotspot, automatically.</b>
+</p>
 
-Main use case: AI coding agents, SSH sessions, and other long-running work on the Mac
-stay online for as long as possible.
+<p align="center">
+  <img src="https://img.shields.io/badge/macOS-13%2B-1B2330?logo=apple&logoColor=white" alt="macOS 13+">
+  <img src="https://img.shields.io/badge/tested%20on-macOS%2026%20Tahoe-0A42D3" alt="Tested on macOS 26 Tahoe">
+  <img src="https://img.shields.io/badge/dependencies-none-1D9E6A" alt="No dependencies">
+  <img src="https://img.shields.io/badge/menu%20bar-native%20Swift-0A42D3" alt="Native Swift menu bar">
+</p>
+
+<p align="center">
+  <img src="assets/concept.svg" alt="At home on home Wi-Fi, on the go (bike, train, café) over your phone's hotspot, at the office on office Wi-Fi — your Mac stays online all day." width="900">
+</p>
+
+A small, robust macOS tool that keeps a MacBook on the internet while it's open and awake
+in your bag — with Amphetamine or `caffeinate` keeping it from sleeping. When it loses
+connectivity, it reconnects to your saved networks and, as a last resort, joins your
+**phone's hotspot** — on its own, with no clicking in the Wi-Fi menu. Any phone that can
+share a hotspot works (iPhone, Android, anything); a hotspot is just another saved Wi-Fi
+network as far as Limpet is concerned.
+
+It's a single shell script that runs as a per-user background agent, plus an optional native
+menu-bar companion. No login, no account, no daemon talking to the cloud. The hotspot
+password lives in your Keychain, not in a file.
 
 ---
 
-## 1. How it works
+## Is this for you?
 
-It runs as a daemon (started by a LaunchAgent at login) and, in a loop:
+**Limpet is for you if…**
 
-1. **Checks for REAL internet** — it isn't satisfied with "I have an IP / a gateway". It
-   uses at least two methods:
+- you keep a Mac open and working while it's in a backpack, a drawer, or moving between rooms and buildings;
+- you run things that must *not* drop offline: AI coding agents, SSH sessions, long builds, syncs, remote access;
+- you'd rather it silently fall back to your phone's hotspot than babysit the Wi-Fi menu.
+
+**It's probably overkill if…**
+
+- your Mac sits on one desk, on one Wi-Fi, all day — macOS already handles that fine.
+
+That's the whole pitch. If the first list sounds like you, the rest of this README is the manual.
+
+---
+
+## How it works
+
+Limpet runs as a background agent (started by a LaunchAgent at login) and loops:
+
+1. **Checks for *real* internet** — it isn't satisfied with "I have an IP / a gateway." It uses
+   more than one method:
    - a direct `ping` to `1.1.1.1` / `8.8.8.8` (L3 reachability, no DNS);
    - an HTTP request to `captive.apple.com` (checks DNS + HTTP + detects captive portals);
    - an HTTPS fallback straight to `https://1.1.1.1` (checks TLS without DNS).
-2. **If it works → it does nothing.** It does not change the network.
-3. **If it doesn't work → it remediates**, in order:
-   - A. let macOS reconnect to a saved network on its own, then re-check;
-   - B. cycle **Wi-Fi off/on** (fixes many "connected but dead" cases);
-   - C. try the preferred networks from the config (home, office), in order;
-   - D. try the **iPhone hotspot** (password from the Keychain).
+2. **If it works → it does nothing.** It never changes a working network.
+3. **If it doesn't → it remediates**, in order:
+   - **A.** let macOS reconnect to a saved network on its own, then re-check;
+   - **B.** cycle **Wi-Fi off/on** (fixes many "connected but dead" cases);
+   - **C.** try the preferred networks from your config (home, office), in order;
+   - **D.** join your **phone's hotspot** (password read from the Keychain).
 4. After each attempt it **re-checks** real internet.
-5. If nothing works → **retry with exponential backoff** (45s → 90 → 180 → … → max 300s),
-   so it doesn't spin in an aggressive loop or burn CPU/battery.
+5. If nothing works → **exponential backoff** (45s → 90 → 180 → … → max 300s), so it never
+   spins in a tight loop burning CPU or battery.
 6. **Clear logs** about what it tried and what it got.
 
-States handled separately: Wi-Fi connected but no internet · Wi-Fi disconnected ·
+States it handles separately: Wi-Fi connected but no internet · Wi-Fi disconnected ·
 hotspot unavailable · hotspot present but no internet · captive portal.
 
 ### Built for modern macOS (tested on macOS 26 / Tahoe)
-- **Does not rely on reading the SSID.** On recent macOS, `networksetup -getairportnetwork`
-  is unreliable (it returns "not associated" or `<redacted>` even when you are connected).
-  The script confirms connectivity via **active link + IP + a real internet test**, not by name.
-- **Does not use the `airport` binary** (removed in macOS 14.4+). Scanning is best-effort
-  (`system_profiler`); if names are hidden, it tries known networks "blind".
-- **Auto-detects the Wi-Fi interface** (does not assume `en0`).
-- Native commands only: `networksetup`, `ifconfig`, `ipconfig`, `route`, `ping`, `curl`,
-  `security`, `system_profiler`. No external dependencies. Compatible with `bash 3.2` (the one shipped with macOS).
+
+- **Doesn't rely on reading the SSID.** On recent macOS, `networksetup -getairportnetwork` is
+  unreliable (it returns "not associated" or `<redacted>` even when you're connected). Limpet
+  confirms connectivity via **active link + IP + a real internet test**, not by name.
+- **Doesn't use the `airport` binary** (removed in macOS 14.4+). Scanning is best-effort
+  (`system_profiler`); if names are hidden, it tries known networks "blind."
+- **Auto-detects the Wi-Fi interface** (doesn't assume `en0`).
+- **Native commands only:** `networksetup`, `ifconfig`, `ipconfig`, `route`, `ping`, `curl`,
+  `security`, `system_profiler`. No external dependencies. Runs on the `bash 3.2` that ships
+  with macOS.
 
 ---
 
-## 2. Files
-
-| File | Role |
-|---|---|
-| `limpet.sh` | The main script (daemon + diagnostic commands). |
-| `limpet-menu.swift` | Native menu-bar companion (status + quick actions). |
-| `assets/limpet-icon.png` | Original 1254×1254 app icon source copied from the downloaded image. |
-| `assets/limpet-icon.svg` | Pixel-exact SVG wrapper for the app icon source image. |
-| `assets/AppIcon.icns` | macOS app icon installed into the menu-bar app bundle. |
-| `assets/MenuBarIconTemplate*.png` | Transparent template glyph variants used for macOS menu-bar status states. |
-| `config.example.sh` | Configuration template → copied to `~/.config/limpet/config.sh`. |
-| `com.georgeolaru.limpet.plist` | LaunchAgent (reference; `install.sh` generates one with the correct paths). |
-| `install.sh` | Installs and starts everything. |
-| `uninstall.sh` | Stops and uninstalls (`--purge` also removes config + logs). |
-
----
-
-## 3. Install (quick)
+## Install
 
 ```bash
 cd limpet
@@ -72,19 +93,22 @@ bash install.sh
 ```
 
 The installer:
+
 - copies the script to `~/.local/bin/limpet.sh` (executable);
-- compiles the status item to `~/Applications/Limpet.app` if `swiftc` is available;
+- compiles the menu-bar app to `~/Applications/Limpet.app` if `swiftc` is available;
 - installs the app icon into the menu-bar app bundle;
-- creates `~/.config/limpet/config.sh` from the example (if it doesn't exist);
-- generates the plists with real paths in `~/Library/LaunchAgents/`;
-- loads them into `launchd` (the daemon + menu bar start immediately and at every login).
+- creates `~/.config/limpet/config.sh` from the example (if it doesn't already exist);
+- generates the LaunchAgents with real paths in `~/Library/LaunchAgents/`;
+- loads them into `launchd` (the agent + menu bar start immediately, and at every login).
 
-**Then, required:**
-1. Edit the config (see section 6): `~/.config/limpet/config.sh`
-2. Put the hotspot password in the Keychain (section 5).
-3. Connect to the hotspot manually once (section 4).
+**Then, three one-time steps:**
 
-### Manual install (if you prefer step by step)
+1. Edit your config — see [Configuration](#configuration): `~/.config/limpet/config.sh`
+2. Put the hotspot password in the Keychain — see [Hotspot password](#hotspot-password-in-the-keychain).
+3. Connect to the hotspot manually once — see [First-time hotspot connection](#first-time-hotspot-connection).
+
+<details>
+<summary><b>Manual install</b> (if you prefer step by step)</summary>
 
 ```bash
 # 1. Copy the script and make it executable
@@ -105,28 +129,37 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.georgeolaru.limpet.p
 # (on older macOS: launchctl load -w ~/Library/LaunchAgents/com.georgeolaru.limpet.plist)
 ```
 
+</details>
+
 ---
 
-## 4. First-time hotspot connection (once, manually)
+## First-time hotspot connection
 
-For the script to connect automatically, the hotspot network must already exist in macOS:
+Any phone that can share a hotspot works — iPhone, Android, anything. Limpet just needs the
+hotspot network to already exist in macOS (one manual connection, so the password is saved).
+Steps for **iPhone** (the tested default):
 
 1. On the iPhone: **Settings → Personal Hotspot → Allow Others to Join = ON**.
    ("Maximize Compatibility" also helps if the MacBook can't see it.)
-2. The hotspot name (SSID) = the iPhone's name: **Settings → General → About → Name**.
-3. On the MacBook: from the Wi-Fi menu, connect to the hotspot **once, manually**, and
-   tick "Remember this network". That way macOS saves the network + password.
-4. Put that exact name in the config under `HOTSPOT_SSID`.
+2. The hotspot name (SSID) is the iPhone's name: **Settings → General → About → Name**.
+3. On the MacBook: from the Wi-Fi menu, connect to the hotspot **once, manually**, and tick
+   "Remember this network." macOS now stores the network + password.
+4. Put that exact name in your config under `HOTSPOT_SSID`.
 
-> Note: the home/office networks in `PREFERRED_SSIDS` must also be connected manually
-> once, so they're remembered with their password. The script relies on saved credentials.
+> **Android or any other phone:** same idea — turn on the Wi-Fi hotspot, connect the Mac to
+> it once (remember the network), and use that hotspot's name as `HOTSPOT_SSID`. The only
+> iPhone-tuned default is the gateway range in `HOTSPOT_GATEWAY_PREFIXES` — see
+> [Configuration](#configuration) to point it at your phone.
+
+> The home/office networks in `PREFERRED_SSIDS` also need one manual connection each, so
+> they're remembered with their passwords. Limpet relies on saved credentials.
 
 ---
 
-## 5. Hotspot password in the Keychain (recommended)
+## Hotspot password in the Keychain
 
-So you don't keep the password in cleartext in a file, store it in the Keychain (the
-default "service" name is `limpet-hotspot`, and "account" = the hotspot SSID):
+So the password isn't sitting in cleartext in a file, store it in the Keychain (default
+"service" = `limpet-hotspot`, "account" = the hotspot SSID):
 
 ```bash
 # replace the SSID and the password
@@ -137,45 +170,47 @@ security add-generic-password \
   -U
 ```
 
-The script reads it on its own with `security find-generic-password -w`. Leave
+Limpet reads it on its own with `security find-generic-password -w`. Leave
 `HOTSPOT_PASSWORD=""` in the config.
 
 - Verify: `security find-generic-password -s "limpet-hotspot" -a "My iPhone" -w`
 - The first time, macOS may ask for an "allow access" confirmation. Click **Always Allow**.
 - Less secure alternative: put the password directly in the config under `HOTSPOT_PASSWORD`.
-- If you already connected to the hotspot manually (section 4), the script can work even
-  without a password (it uses the credentials saved by macOS) — `TRY_REMEMBERED_HOTSPOT=1`.
+- If you already connected to the hotspot manually (above), Limpet can work even without a
+  password — it uses the credentials macOS saved (`TRY_REMEMBERED_HOTSPOT=1`).
 
 ---
 
-## 6. Configuration
+## Configuration
 
-Edit `~/.config/limpet/config.sh`. The most important settings:
+Edit `~/.config/limpet/config.sh`. The settings that matter most:
 
 ```sh
 PREFERRED_SSIDS=( "Home_WiFi" "Office_WiFi" )    # in order of preference
 HOTSPOT_SSID="My iPhone"                          # the exact hotspot name
 HOTSPOT_PASSWORD=""                               # empty = read from the Keychain
 PREFER_WIFI_OVER_HOTSPOT=1                         # automatically move back from hotspot to Wi-Fi
-PREFER_WIFI_CHECK_INTERVAL=300                     # every 5 minutes when it looks like it's on hotspot
-HOTSPOT_GATEWAY_PREFIXES=( "172.20.10." )         # iPhone detection when the SSID is redacted
+PREFER_WIFI_CHECK_INTERVAL=300                     # every 5 min when it looks like it's on hotspot
+HOTSPOT_GATEWAY_PREFIXES=( "172.20.10." )         # hotspot detection when the SSID is redacted (iPhone range)
 CHECK_INTERVAL=45                                 # seconds between checks while online
 MAX_INTERVAL=300                                  # backoff cap on failure
 LOG_FILE="$HOME/Library/Logs/limpet.log"
 ```
 
-### Automatically moving back from hotspot to Wi-Fi
+### Moving back from hotspot to Wi-Fi
 
-When the internet works, the daemon normally doesn't change the network. The exception is
-`PREFER_WIFI_OVER_HOTSPOT=1`: if the current connection looks like the iPhone hotspot,
-every `PREFER_WIFI_CHECK_INTERVAL` seconds it tries the networks in `PREFERRED_SSIDS`,
-in order. It only switches if the new network has real internet. If it doesn't find a
-good Wi-Fi, it stays on the hotspot or tries to return to it.
+When the internet works, Limpet normally leaves the network alone. The one exception is
+`PREFER_WIFI_OVER_HOTSPOT=1`: if the current connection looks like the phone hotspot, every
+`PREFER_WIFI_CHECK_INTERVAL` seconds it tries the networks in `PREFERRED_SSIDS`, in order. It
+only switches if the new network has real internet. If it can't find good Wi-Fi, it stays on
+the hotspot (or tries to return to it).
 
-On recent macOS, the SSID may show up as `<redacted>`. `sudo` usually doesn't fix this,
-because SSID visibility is tied to Location Services, not just Unix privileges. For the
-iPhone Personal Hotspot, the script also detects the standard `172.20.10.x` gateway, so
-it can decide it's on the hotspot even when the name is hidden.
+On recent macOS the SSID may show up as `<redacted>`. `sudo` usually doesn't fix this —
+SSID visibility is tied to Location Services, not Unix privileges. So Limpet also recognizes
+the hotspot by its **gateway range**, which works even when the name is hidden. iPhone uses
+`172.20.10.x`; Android is commonly `192.168.43.x` (it varies by phone). To find yours,
+connect to the hotspot once and run `~/.local/bin/limpet.sh --status`, then put that range in
+`HOTSPOT_GATEWAY_PREFIXES` (e.g. `( "172.20.10." "192.168.43." )`).
 
 After any config change, **restart** the agent:
 
@@ -185,7 +220,7 @@ launchctl kickstart -k gui/$(id -u)/com.georgeolaru.limpet
 
 ---
 
-## 7. Start / stop / check
+## Start / stop / check
 
 ```bash
 # Start (or restart) on demand
@@ -205,6 +240,7 @@ tail -f ~/Library/Logs/limpet.log
 ```
 
 Example logs:
+
 ```
 2026-06-15 10:00:01 limpet started (iface=en0, interval=45s, ...).
 2026-06-15 10:00:01 Internet OK (route=en0, ssid=<redacted>).
@@ -217,37 +253,41 @@ Example logs:
 
 ---
 
-## 8. Menu bar status
+## Menu bar
 
-Installation also starts a small companion in the menu bar. It doesn't do the monitoring
-itself; it only reads the daemon's status and runs safe actions on top of the script/launchd.
-The menu bar shows a Limpet template icon variant for OK, down, captive portal, or unknown status.
+The installer also starts a small companion in the menu bar. It doesn't do the monitoring
+itself — it reads the agent's status and runs safe actions on top of the script and launchd.
+The icon is a Limpet template glyph that changes with the state: OK, down, captive portal, or
+unknown.
 
-What you see in the menu:
-- internet status: OK / DOWN / captive portal;
-- the LaunchAgent state and the daemon PID;
-- the Wi-Fi interface, the IP, the default route and the best-effort SSID;
-- the last line from the log.
+At the top it shows the current internet status with a colored dot — **OK** (green),
+**captive portal** (orange), **DOWN / unavailable** (red), or **checking** (grey) — and the
+result of your last action.
 
-Available actions:
-- **Pause Limpet / Resume Limpet** — stops or restarts the background daemon;
+Actions:
+
+- **Pause Limpet / Resume Limpet** — stops or restarts the background agent;
 - **Check Internet Now** — runs `limpet.sh --check`;
 - **Prefer Wi-Fi Now** — if you're on the hotspot, immediately try the preferred networks;
-- **Settings…** — opens the Settings window (see below);
-- **Open Log**, **Show Details**;
-- **Quit Limpet**, **Uninstall Limpet…** — Uninstall runs the bundled uninstaller (keeps config + logs).
+- **Settings…** — opens the Settings window (below);
+- **Open Log** — opens the log file;
+- **Quit Limpet** — closes the menu bar (the background agent keeps running).
+
+For deeper details (interface, IP, route, SSID, PID, full status) use the CLI:
+`~/.local/bin/limpet.sh --status`. To uninstall, run `bash uninstall.sh` (see
+[Uninstall](#uninstall)).
 
 ### Settings window
 
-Instead of hand-editing the config, open **Settings…** to configure Limpet:
+Instead of hand-editing the config, open **Settings…**:
 
 - **Phone hotspot** — pick your hotspot from your saved Wi-Fi networks, set its password
   (stored in the Keychain), and **Test hotspot now** to confirm it actually connects.
-- **Behavior** — toggle "Automatically return to Wi-Fi when available", and set the check
+- **Behavior** — toggle "Automatically return to Wi-Fi when available," and set the check
   interval and max backoff.
 
-Changes apply immediately and restart the daemon. Under the hood the window edits the same
-`~/.config/limpet/config.sh` and Keychain entry the daemon already uses — so the CLI and the
+Changes apply immediately and restart the agent. Under the hood the window edits the same
+`~/.config/limpet/config.sh` and Keychain entry the agent already uses — so the CLI and the
 UI never disagree.
 
 The menu bar has its own LaunchAgent:
@@ -256,15 +296,15 @@ The menu bar has its own LaunchAgent:
 launchctl print gui/$(id -u)/com.georgeolaru.limpet.menu | grep -E 'state|pid'
 ```
 
-If you only close the menu bar via "Quit Limpet", the daemon keeps running. At the next
-login the menu bar starts again.
+If you only "Quit Limpet" from the menu, the background agent keeps running. The menu bar
+comes back at the next login.
 
 ---
 
-## 9. Debugging
+## Debugging
 
-The script has diagnostic commands that **change nothing** (read-only), plus test modes.
-Run the installed binary directly:
+The script has read-only diagnostic commands that **change nothing**, plus test modes. Run
+the installed binary directly:
 
 ```bash
 SCRIPT=~/.local/bin/limpet.sh
@@ -272,36 +312,33 @@ SCRIPT=~/.local/bin/limpet.sh
 "$SCRIPT" --check     # just check the internet: OK / CAPTIVE / DOWN  (exit code 0/2/1)
 "$SCRIPT" --status    # interface, Wi-Fi power, link, IP, route, SSID, internet, config
 "$SCRIPT" --scan      # visible networks (best-effort; may be hidden on recent macOS)
-"$SCRIPT" --prefer-wifi-now   # if you're on hotspot, immediately try preferred Wi-Fi
-"$SCRIPT" --once      # a single check + remediation, with the log on screen (safe test)
-"$SCRIPT" --test-join "SSID" "password"   # manually test connecting to a network
+"$SCRIPT" --prefer-wifi-now      # if on hotspot, immediately try preferred Wi-Fi
+"$SCRIPT" --once                 # one check + remediation, log on screen (safe test)
+"$SCRIPT" --test-join "SSID" "password"   # manually test joining a network
 "$SCRIPT" --help
 ```
 
 Common problems:
 
-- **"Internet OK" but I still lose the net in transit** — normal: the script reacts on
-  the next check (at most `CHECK_INTERVAL` seconds) and then remediates.
-- **`--scan` shows `<redacted>` / empty** — that's macOS privacy (missing Location
-  permission). It's not a problem: the daemon tries known networks "blind". If you want
-  real names, grant Location Services to the process.
-- **It won't connect to the hotspot** — check: Personal Hotspot is on on the iPhone;
-  `HOTSPOT_SSID` is exactly the iPhone's name; you connected manually once; the password
-  is in the Keychain. Test: `"$SCRIPT" --test-join "My iPhone" "password"`.
-- **The join fails with "Could not find network"** — the network is out of range or the
-  name is wrong. For the hotspot: open the Personal Hotspot screen on the iPhone (it makes
-  it visible).
-- **`networksetup` asks for an admin password** — rare; run the account as admin. If it
-  persists, you can allow the command without a password, but it's usually not needed for
-  join/power.
+- **"Internet OK" but I still lose the net in transit** — expected: Limpet reacts on the next
+  check (at most `CHECK_INTERVAL` seconds later) and then remediates.
+- **`--scan` shows `<redacted>` / empty** — that's macOS privacy (no Location permission). Not
+  a problem: the agent tries known networks "blind." Grant Location Services to the process if
+  you want real names.
+- **It won't connect to the hotspot** — check: the phone's hotspot is on; `HOTSPOT_SSID` is
+  exactly the hotspot's name; you connected manually once; the password is in the Keychain.
+  Test: `"$SCRIPT" --test-join "My iPhone" "password"`.
+- **Join fails with "Could not find network"** — out of range or wrong name. Open the hotspot
+  screen on the phone to make it visible (on iPhone, the Personal Hotspot screen).
+- **`networksetup` asks for an admin password** — rare; run the account as admin.
 - **The agent won't start** — see `~/Library/Logs/limpet.err.log` and
   `launchctl print gui/$(id -u)/com.georgeolaru.limpet`.
-- **I want fewer/more logs** — change `CHECK_INTERVAL` / `MAX_INTERVAL`. When the net
-  works, the script only logs on transitions, so the file doesn't fill up.
+- **I want fewer/more logs** — change `CHECK_INTERVAL` / `MAX_INTERVAL`. When the net works,
+  Limpet only logs on transitions, so the file doesn't fill up.
 
 ---
 
-## 10. Uninstall
+## Uninstall
 
 ```bash
 bash uninstall.sh           # stops + removes the agent and the script (keeps config + logs)
@@ -310,11 +347,29 @@ bash uninstall.sh --purge   # removes everything, including config and logs
 
 ---
 
-## 11. Security notes / resources
+## Notes on safety & footprint
 
 - The hotspot password lives in the **Keychain**, not in the script.
-- The daemon stays "asleep" almost all the time (a long `sleep` between checks) →
-  negligible CPU/battery use. `ProcessType=Background` + `LowPriorityIO` in the plist.
-- It runs as a **LaunchAgent** (per-user), so it has access to your Keychain and can
-  manage Wi-Fi without sudo. It does not depend on SSH or the internet to start.
+- The agent is "asleep" almost all the time (a long `sleep` between checks) → negligible
+  CPU/battery use. `ProcessType=Background` + `LowPriorityIO` in the plist.
+- It runs as a **LaunchAgent** (per-user), so it can reach your Keychain and manage Wi-Fi
+  without `sudo`. It doesn't depend on SSH or the internet to start.
 - The log rotates itself at ~1 MB (`limpet.log` → `limpet.log.1`).
+
+---
+
+## Files
+
+| File | Role |
+|---|---|
+| `limpet.sh` | The main script (agent + diagnostic commands). |
+| `limpet-menu.swift` | Native menu-bar companion (status + quick actions). |
+| `config.example.sh` | Config template → copied to `~/.config/limpet/config.sh`. |
+| `install.sh` | Installs and starts everything. |
+| `uninstall.sh` | Stops and uninstalls (`--purge` also removes config + logs). |
+| `com.georgeolaru.limpet.plist` | LaunchAgent reference (`install.sh` generates one with correct paths). |
+| `assets/limpet-icon.png` | App icon source (1254×1254). |
+| `assets/limpet-icon.svg` | Pixel-exact SVG wrapper for the icon source. |
+| `assets/AppIcon.icns` | App icon installed into the menu-bar bundle. |
+| `assets/MenuBarIconTemplate*.png` | Template glyphs for the menu-bar status states. |
+| `assets/concept.svg` | The failover diagram at the top of this README. |

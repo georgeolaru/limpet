@@ -11,7 +11,7 @@
 #        a) let macOS reconnect to a saved network on its own;
 #        b) cycle "Wi-Fi off/on" to force re-association;
 #        c) try the preferred known networks (home / office);
-#        d) try the iPhone hotspot (password from the Keychain).
+#        d) try the phone hotspot (iPhone, Android, ...; password from the Keychain).
 #   4. After each attempt, re-check the internet.
 #   5. If nothing works -> retry with backoff (no aggressive loop).
 #   6. Write clear logs about what it tried and what it got.
@@ -44,15 +44,16 @@
 # be saved in macOS (connected manually once).
 PREFERRED_SSIDS=( "Home_WiFi" "Office_WiFi" )
 
-# The iPhone hotspot.
+# The phone hotspot (iPhone, Android, anything). HOTSPOT_SSID is just the
+# network name the phone broadcasts; it must be saved in macOS (connected once).
 HOTSPOT_SSID="My iPhone"
 HOTSPOT_PASSWORD=""                       # leave empty; ideally put the password in the Keychain
 HOTSPOT_KEYCHAIN_SERVICE="limpet-hotspot"
 TRY_REMEMBERED_HOTSPOT=1                   # 1 = also try without a password (saved network)
 
 # If you're on hotspot, periodically try to move back to the preferred real Wi-Fi.
-# On recent macOS the SSID may be "<redacted>", so we also detect the iPhone hotspot
-# by the standard gateway used by Personal Hotspot (172.20.10.x).
+# On recent macOS the SSID may be "<redacted>", so we also detect the hotspot by its
+# gateway range (iPhone uses 172.20.10.x; Android is commonly 192.168.43.x).
 PREFER_WIFI_OVER_HOTSPOT=1
 PREFER_WIFI_CHECK_INTERVAL=300             # how often to try the upgrade off hotspot
 HOTSPOT_GATEWAY_PREFIXES=( "172.20.10." )
@@ -432,8 +433,8 @@ remediate() {
   # C1: known preferred networks, in order of preference (use the saved password).
   try_preferred_networks "$visible" && return 0
 
-  # C2: iPhone hotspot (last resort). Instant Hotspot may not appear in the scan,
-  # so we try anyway.
+  # C2: phone hotspot (last resort). It may not appear in the scan (e.g. iPhone
+  # Instant Hotspot can stay hidden), so we try anyway.
   if [ -n "$HOTSPOT_SSID" ]; then
     if ! network_visible "$HOTSPOT_SSID" "$visible"; then
       log "Hotspot '$HOTSPOT_SSID' not seen in scan (instant hotspot may be hidden); trying anyway."

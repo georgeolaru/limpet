@@ -12,9 +12,11 @@
 # once, so they're remembered with their password). Edit with your real names.
 PREFERRED_SSIDS=( "Home_WiFi" "Office_WiFi" )
 
-# --- iPhone hotspot ---------------------------------------------------------
-# The hotspot SSID = usually the iPhone's name
-# (Settings -> General -> About -> Name).
+# --- Phone hotspot (iPhone, Android, anything) ------------------------------
+# The hotspot SSID = the network name your phone broadcasts.
+#   - iPhone: the iPhone's name (Settings -> General -> About -> Name).
+#   - Android: the hotspot name you set under Settings -> Hotspot & tethering.
+# It just has to be a network macOS has already saved (connected once).
 HOTSPOT_SSID="My iPhone"
 
 # Hotspot password:
@@ -35,8 +37,10 @@ TRY_REMEMBERED_HOTSPOT=1
 PREFER_WIFI_OVER_HOTSPOT=1
 PREFER_WIFI_CHECK_INTERVAL=300
 
-# The iPhone Personal Hotspot usually uses a gateway in 172.20.10.x. This helps
-# us detect the hotspot even when macOS hides the SSID as "<redacted>".
+# Recognize the hotspot by its gateway range, so it works even when macOS hides
+# the SSID as "<redacted>". iPhone uses 172.20.10.x; Android is commonly
+# 192.168.43.x (varies by phone). Add your phone's range here -- find it by
+# connecting once and running:  ~/.local/bin/limpet.sh --status
 HOTSPOT_GATEWAY_PREFIXES=( "172.20.10." )
 
 # --- Wi-Fi interface --------------------------------------------------------
