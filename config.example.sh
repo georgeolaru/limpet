@@ -43,6 +43,15 @@ PREFER_WIFI_CHECK_INTERVAL=300
 # connecting once and running:  ~/.local/bin/limpet.sh --status
 HOTSPOT_GATEWAY_PREFIXES=( "172.20.10." )
 
+# --- macOS native Auto-Join Hotspot (same Apple ID) -------------------------
+# If your Mac and iPhone share an Apple ID on macOS 26+ / iOS 26+, let macOS do
+# the joining: Wi-Fi Settings > "Ask to join hotspots" > Automatic, Bluetooth on.
+# macOS then joins your iPhone's hotspot over Bluetooth -- even a dormant one,
+# which a password join can't wake. With this on, Limpet yields AUTOJOIN_WAIT_SECS
+# to macOS before doing its own password join. Android / other Apple ID: set 0.
+PREFER_AUTOJOIN_HOTSPOT=1
+AUTOJOIN_WAIT_SECS=15
+
 # --- Wi-Fi interface --------------------------------------------------------
 # Leave empty for auto-detect (recommended). Set "en0" only to force it.
 WIFI_INTERFACE=""

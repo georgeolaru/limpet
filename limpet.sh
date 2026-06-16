@@ -58,6 +58,14 @@ PREFER_WIFI_OVER_HOTSPOT=1
 PREFER_WIFI_CHECK_INTERVAL=300             # how often to try the upgrade off hotspot
 HOTSPOT_GATEWAY_PREFIXES=( "172.20.10." )
 
+# macOS native Auto-Join Hotspot (Continuity, same Apple ID). On macOS 26+, enable
+# Wi-Fi Settings > "Ask to join hotspots" > Automatic (and keep Bluetooth on), and
+# macOS joins your iPhone's hotspot over Bluetooth -- even a dormant one. When this
+# is on, Limpet yields AUTOJOIN_WAIT_SECS to that before its own password join.
+# Android / different-Apple-ID phones: set 0 to skip the wait (password join only).
+PREFER_AUTOJOIN_HOTSPOT=1
+AUTOJOIN_WAIT_SECS=15
+
 # Wi-Fi interface. Empty = auto-detect from networksetup -listallhardwareports.
 WIFI_INTERFACE=""
 
@@ -407,6 +415,22 @@ prefer_wifi_over_hotspot() {
 # ------------------------------------------------------------------------------
 # 8) REMEDIATION (run ONLY when there is no internet)
 # ------------------------------------------------------------------------------
+
+# Give macOS native Auto-Join Hotspot a chance to bring up a same-Apple-ID hotspot
+# (Bluetooth-woken; works even on a dormant one). We poll real internet while the
+# Mac has no good Wi-Fi -- which is exactly when macOS Auto-Join fires. There is no
+# CLI to trigger Instant Hotspot, so we yield and verify rather than join it.
+wait_for_autojoin() {
+  local waited=0 step=3 budget="${AUTOJOIN_WAIT_SECS:-15}"
+  log "Yielding ${budget}s to macOS Auto-Join Hotspot before the password join..."
+  while [ "$waited" -lt "$budget" ]; do
+    sleep "$step"
+    waited=$((waited + step))
+    probe_internet && return 0
+  done
+  return 1
+}
+
 remediate() {
   ensure_wifi_on
 
@@ -432,6 +456,16 @@ remediate() {
 
   # C1: known preferred networks, in order of preference (use the saved password).
   try_preferred_networks "$visible" && return 0
+
+  # C1.5: yield to macOS native Auto-Join Hotspot (same Apple ID). It can wake a
+  # dormant hotspot over Bluetooth, which our password join can't -- so give it a
+  # window before falling back. Skipped (no wait) when PREFER_AUTOJOIN_HOTSPOT=0.
+  if [ "${PREFER_AUTOJOIN_HOTSPOT:-1}" -eq 1 ]; then
+    if wait_for_autojoin; then
+      log "Recovered via macOS Auto-Join Hotspot."
+      return 0
+    fi
+  fi
 
   # C2: phone hotspot (last resort). It may not appear in the scan (e.g. iPhone
   # Instant Hotspot can stay hidden), so we try anyway.

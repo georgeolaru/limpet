@@ -178,6 +178,10 @@ things, once:
 > looking. Limpet joins the hotspot like a normal saved network (it can't *wake* a sleeping
 > iPhone hotspot the way Continuity does), so the steps below disable that timeout or work
 > around it. Get this right and the rest rarely matters.
+>
+> **Same-Apple-ID iPhone on macOS 26+? You can skip these workarounds** — macOS's Auto-Join
+> *can* wake a slept hotspot over Bluetooth, and Limpet yields to it (see the iPhone section
+> below). The timeout workarounds matter for **Android or a different Apple ID**.
 
 <details>
 <summary><b>iPhone / iOS</b></summary>
@@ -197,9 +201,19 @@ In **Settings → Personal Hotspot**:
 
 Gateway range: `172.20.10.` (already the default in `HOTSPOT_GATEWAY_PREFIXES`).
 
-> **macOS 26 (Tahoe) bonus:** Wi-Fi settings → **"Ask to join hotspots" → Automatic** lets
-> macOS wake and join your iPhone hotspot over Continuity even after it has slept — a useful
-> complement to Limpet for the iPhone case (needs the same Apple ID, Bluetooth + Wi-Fi on).
+> **Same Apple ID? Let macOS do the joining (recommended).** On macOS 26+ / iOS 26+, set
+> Wi-Fi settings → **"Ask to join hotspots" → Automatic** and keep **Bluetooth on**. macOS then
+> joins your iPhone's hotspot over Continuity/Bluetooth — *even after it has slept* — so you can
+> **skip the "keep the screen open / Auto-Lock" workarounds above**. Limpet now **yields to this
+> automatically** (`PREFER_AUTOJOIN_HOTSPOT`): when it sees the connection is dead it lets macOS
+> do the join, then verifies you actually have working internet — the part macOS doesn't check —
+> and only falls back to its own password join if Auto-Join doesn't kick in. How the join works:
+> [Apple — Instant / Auto-Join Hotspot](https://support.apple.com/en-us/109321) ·
+> [Connect to a Personal Hotspot](https://support.apple.com/en-us/111785).
+>
+> **The hands-off setup** (the canonical one): Mac kept awake with **Amphetamine** or
+> `caffeinate`, lid open in a bag, same-Apple-ID iPhone with Auto-Join on. Limpet watches for
+> dead internet, macOS handles the hotspot — no clicking, no screen to keep open.
 
 </details>
 
@@ -272,6 +286,8 @@ HOTSPOT_PASSWORD=""                               # empty = read from the Keycha
 PREFER_WIFI_OVER_HOTSPOT=1                         # automatically move back from hotspot to Wi-Fi
 PREFER_WIFI_CHECK_INTERVAL=300                     # every 5 min when it looks like it's on hotspot
 HOTSPOT_GATEWAY_PREFIXES=( "172.20.10." )         # hotspot detection when the SSID is redacted (iPhone range)
+PREFER_AUTOJOIN_HOTSPOT=1                          # same Apple ID: yield to macOS Auto-Join before the password join
+AUTOJOIN_WAIT_SECS=15                              # how long to give macOS to auto-join (Android: set PREFER_AUTOJOIN_HOTSPOT=0)
 CHECK_INTERVAL=45                                 # seconds between checks while online
 MAX_INTERVAL=300                                  # backoff cap on failure
 LOG_FILE="$HOME/Library/Logs/limpet.log"
