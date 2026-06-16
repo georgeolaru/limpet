@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/concept.svg" alt="At home on home Wi-Fi, on the go (bike, train, café) over your phone's hotspot, at the office on office Wi-Fi — your Mac stays online all day." width="900">
+  <img src="assets/concept.svg" alt="At home on home Wi-Fi, on the go (bike, train, stroller) over your phone's hotspot, at the office on office Wi-Fi — your Mac stays online all day." width="900">
 </p>
 
 A small, robust macOS tool that keeps a MacBook on the internet while it's open and awake
