@@ -6,3 +6,6 @@
 
 # Logs / build artifacts
 *.log
+
+# Release output from release-app.sh (notarized .zip; ships via GitHub Releases)
+dist/
