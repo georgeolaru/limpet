@@ -101,11 +101,11 @@ The installer:
 - generates the LaunchAgents with real paths in `~/Library/LaunchAgents/`;
 - loads them into `launchd` (the agent + menu bar start immediately, and at every login).
 
-**Then, three one-time steps:**
+**Then, one-time setup** — see [Set up your phone's hotspot](#set-up-your-phones-hotspot):
 
-1. Edit your config — see [Configuration](#configuration): `~/.config/limpet/config.sh`
-2. Put the hotspot password in the Keychain — see [Hotspot password](#hotspot-password-in-the-keychain).
-3. Connect to the hotspot manually once — see [First-time hotspot connection](#first-time-hotspot-connection).
+1. Make the hotspot reliable (a couple of iOS/Android settings).
+2. Connect your Mac to it once, so macOS saves the network + password.
+3. Point Limpet at it — `HOTSPOT_SSID`, the Keychain password, and the gateway range (see [Configuration](#configuration)).
 
 <details>
 <summary><b>Manual install</b> (if you prefer step by step)</summary>
@@ -133,30 +133,73 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.georgeolaru.limpet.p
 
 ---
 
-## First-time hotspot connection
+## Set up your phone's hotspot
 
-Any phone that can share a hotspot works — iPhone, Android, anything. Limpet just needs the
-hotspot network to already exist in macOS (one manual connection, so the password is saved).
-Steps for **iPhone** (the tested default):
+Limpet treats your phone's hotspot as just another saved Wi-Fi network, so setup is three
+things, once:
 
-1. On the iPhone: **Settings → Personal Hotspot → Allow Others to Join = ON**.
-   ("Maximize Compatibility" also helps if the MacBook can't see it.)
-2. The hotspot name (SSID) is the iPhone's name: **Settings → General → About → Name**.
-3. On the MacBook: from the Wi-Fi menu, connect to the hotspot **once, manually**, and tick
-   "Remember this network." macOS now stores the network + password.
-4. Put that exact name in your config under `HOTSPOT_SSID`.
+1. **Make the hotspot reliable** — the per-platform settings below.
+2. **Connect your Mac to it once** (Wi-Fi menu → the hotspot → enter the password → tick
+   "Remember this network"), so macOS saves the network and its password.
+3. **Point Limpet at it** — set `HOTSPOT_SSID` to the hotspot's exact name, store the password
+   in the Keychain (below), and set the gateway range in `HOTSPOT_GATEWAY_PREFIXES` (see
+   [Configuration](#configuration)).
 
-> **Android or any other phone:** same idea — turn on the Wi-Fi hotspot, connect the Mac to
-> it once (remember the network), and use that hotspot's name as `HOTSPOT_SSID`. The only
-> iPhone-tuned default is the gateway range in `HOTSPOT_GATEWAY_PREFIXES` — see
-> [Configuration](#configuration) to point it at your phone.
+> **⚠️ The setting that matters most:** both iOS and Android **turn the hotspot off when no
+> device is connected**, to save battery. For an unattended failover tool that's the usual
+> reason a reconnect fails — the phone has stopped broadcasting by the time the Mac comes
+> looking. Limpet joins the hotspot like a normal saved network (it can't *wake* a sleeping
+> iPhone hotspot the way Continuity does), so the steps below disable that timeout or work
+> around it. Get this right and the rest rarely matters.
 
-> The home/office networks in `PREFERRED_SSIDS` also need one manual connection each, so
-> they're remembered with their passwords. Limpet relies on saved credentials.
+<details>
+<summary><b>iPhone / iOS</b></summary>
 
----
+In **Settings → Personal Hotspot**:
 
-## Hotspot password in the Keychain
+- **Allow Others to Join: ON.**
+- **Maximize Compatibility: ON** (iPhone 12 and later). This drops the hotspot to **2.4 GHz**
+  and forces **WPA2** — slower, but the most reliable band for a Mac across a room or in a
+  bag, and WPA2 is the safest for a scripted join. (The default is 5 GHz.)
+- Note the **password** shown here, and the hotspot **name** = your iPhone's name
+  (**Settings → General → About → Name**). Renaming the iPhone, or changing the password,
+  breaks the saved network.
+- **Keep it from sleeping** while you rely on it: avoid **Low Power Mode** and **Low Data
+  Mode**, and either keep the Personal Hotspot screen open or set **Auto-Lock** longer
+  (Settings → Display & Brightness → Auto-Lock).
+
+Gateway range: `172.20.10.` (already the default in `HOTSPOT_GATEWAY_PREFIXES`).
+
+> **macOS 26 (Tahoe) bonus:** Wi-Fi settings → **"Ask to join hotspots" → Automatic** lets
+> macOS wake and join your iPhone hotspot over Continuity even after it has slept — a useful
+> complement to Limpet for the iPhone case (needs the same Apple ID, Bluetooth + Wi-Fi on).
+
+</details>
+
+<details>
+<summary><b>Android</b></summary>
+
+Paths vary by brand (Pixel, Samsung One UI, …), but it's all under
+**Settings → Network & internet → Hotspot & tethering → Wi-Fi hotspot**:
+
+- Set a **network name** and **password**.
+- **Security: WPA2** (or **WPA2/WPA3** "transitional"). WPA3-only sometimes won't join from
+  macOS — WPA2 is the safe choice.
+- **Band: 2.4 GHz** — better range than 5 GHz, and avoids the 5/6 GHz channels some Macs skip.
+- **Advanced → "Turn off hotspot automatically": OFF.** This is the key one — otherwise the
+  hotspot dies whenever the Mac isn't connected, and the failover can't get back on.
+- Keep the SSID **broadcast** (not hidden).
+
+The gateway range varies by phone — connect once, run `~/.local/bin/limpet.sh --status`, and
+add what you see (often `192.168.43.`) to `HOTSPOT_GATEWAY_PREFIXES`, e.g.
+`( "172.20.10." "192.168.43." )`.
+
+</details>
+
+> Your home/office networks in `PREFERRED_SSIDS` also need one manual connection each, so
+> macOS remembers them with their passwords. Limpet relies on saved credentials.
+
+### Store the password in the Keychain
 
 So the password isn't sitting in cleartext in a file, store it in the Keychain (default
 "service" = `limpet-hotspot`, "account" = the hotspot SSID):
@@ -176,8 +219,18 @@ Limpet reads it on its own with `security find-generic-password -w`. Leave
 - Verify: `security find-generic-password -s "limpet-hotspot" -a "My iPhone" -w`
 - The first time, macOS may ask for an "allow access" confirmation. Click **Always Allow**.
 - Less secure alternative: put the password directly in the config under `HOTSPOT_PASSWORD`.
-- If you already connected to the hotspot manually (above), Limpet can work even without a
-  password — it uses the credentials macOS saved (`TRY_REMEMBERED_HOTSPOT=1`).
+- If you already connected to the hotspot manually, Limpet can work even without storing the
+  password — it reuses the credentials macOS saved (`TRY_REMEMBERED_HOTSPOT=1`).
+
+### When the hotspot won't cooperate
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| Reconnect fails after the phone's been idle a while | Hotspot auto-disabled (no devices connected) | **iOS:** avoid Low Power Mode; keep the Personal Hotspot screen open or Auto-Lock longer. **Android:** turn off "Turn off hotspot automatically". |
+| Mac never sees or can't join the hotspot | 5 GHz / WPA3 / band mismatch | **iOS:** Maximize Compatibility ON. **Android:** Band 2.4 GHz + Security WPA2. |
+| Worked before, now it fails | Phone renamed or hotspot password changed | SSID must equal the phone's hotspot name; re-join once on the Mac and update `HOTSPOT_SSID` + the Keychain. |
+| `--status` shows `ssid=<redacted>` and "prefer Wi-Fi" never triggers | Gateway range not configured | Add your phone's range to `HOTSPOT_GATEWAY_PREFIXES` (iOS `172.20.10.`, Android often `192.168.43.`). |
+| Joins the hotspot but still "no internet" | Carrier blocks tethering, or cellular data is off | Check the plan allows Personal Hotspot/tethering; make sure cellular data is on. |
 
 ---
 
