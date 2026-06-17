@@ -68,6 +68,7 @@ for icon in MenuBarIconTemplate MenuBarIconTemplateOK MenuBarIconTemplateDown \
             MenuBarIconTemplateCaptive MenuBarIconTemplateUnknown; do
   [ -f "$SRC_DIR/assets/$icon.png" ] && cp "$SRC_DIR/assets/$icon.png" "$RES/$icon.png"
 done
+[ -f "$SRC_DIR/docs/timeline.html" ] && cp "$SRC_DIR/docs/timeline.html" "$RES/timeline.html"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

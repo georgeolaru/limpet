@@ -75,6 +75,12 @@ if [ -f "$MENU_SRC" ] && command -v swiftc >/dev/null 2>&1; then
     fi
   done
 
+  if [ -f "$SRC_DIR/docs/timeline.html" ]; then
+    cp "$SRC_DIR/docs/timeline.html" "$MENU_RESOURCES_DST/timeline.html"
+  else
+    echo "  - timeline page : skipped (docs/timeline.html missing)"
+  fi
+
   cat > "$MENU_APP_DST/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

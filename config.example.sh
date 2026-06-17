@@ -43,6 +43,14 @@ PREFER_WIFI_CHECK_INTERVAL=300
 # connecting once and running:  ~/.local/bin/limpet.sh --status
 HOTSPOT_GATEWAY_PREFIXES=( "172.20.10." )
 
+# --- Friendly network names (menu-bar Timeline only) ------------------------
+# Label the networks you see, so the Timeline says "Home"/"Office" instead of a
+# bare gateway. macOS hides the SSID as "<redacted>", so labels are keyed by the
+# GATEWAY (find it with: ~/.local/bin/limpet.sh --status). Each entry is
+# "gateway-or-prefix=Label"; a trailing dot is a prefix (172.20.10. = whole
+# iPhone-hotspot range). You can also edit these in Settings… ▸ Networks.
+NETWORK_LABELS=( "192.168.68.1=Home" "172.20.10.=iPhone hotspot" )
+
 # --- macOS native Auto-Join Hotspot (same Apple ID) -------------------------
 # If your Mac and iPhone share an Apple ID on macOS 26+ / iOS 26+, let macOS do
 # the joining: Wi-Fi Settings > "Ask to join hotspots" > Automatic, Bluetooth on.

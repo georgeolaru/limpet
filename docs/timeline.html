@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Limpet — Timeline</title>
+<style>
+  :root{
+    --bg:#0b1018; --panel:#121b27; --panel2:#16212f; --line:#233244;
+    --text:#e7eef7; --muted:#8597ab; --faint:#5d6e82;
+    --online:#26b07b; --hotspot:#3f7bff; --offline:#f04c5e; --captive:#e8923a; --gap:#3b4860;
+    --shadow:0 1px 0 rgba(255,255,255,.03), 0 10px 30px rgba(0,0,0,.35);
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:radial-gradient(1200px 600px at 70% -10%, #16243a 0%, var(--bg) 55%) fixed;
+    color:var(--text); font-family:var(--sans); line-height:1.5;
+    -webkit-font-smoothing:antialiased; padding:0 0 80px;
+  }
+  .wrap{max-width:960px; margin:0 auto; padding:0 20px}
+  header.top{display:flex; align-items:center; gap:14px; padding:30px 0 18px}
+  .glyph{width:42px;height:42px;flex:0 0 42px;filter:drop-shadow(0 4px 10px rgba(63,123,255,.35))}
+  header.top h1{font-size:22px; margin:0; letter-spacing:.2px}
+  header.top .sub{color:var(--muted); font-size:13px; margin-top:2px}
+  header.top .sub b{color:var(--text); font-weight:600}
+
+  /* ---- stat cards ---- */
+  .stats{display:grid; grid-template-columns:repeat(5,1fr); gap:10px; margin:6px 0 26px}
+  .stat{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:13px 14px; box-shadow:var(--shadow)}
+  .stat .k{font-size:11px; text-transform:uppercase; letter-spacing:.7px; color:var(--muted)}
+  .stat .v{font-size:21px; font-weight:650; margin-top:5px; font-variant-numeric:tabular-nums}
+  .stat .v small{font-size:12px; font-weight:500; color:var(--muted)}
+  .stat.good .v{color:var(--online)} .stat.bad .v{color:var(--offline)}
+  @media(max-width:760px){.stats{grid-template-columns:repeat(2,1fr)} .stat:first-child{grid-column:1/-1}}
+
+  /* ---- ribbon ---- */
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow)}
+  .ribbon-card{padding:18px 18px 14px; margin-bottom:26px}
+  .ribbon-head{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:14px}
+  .ribbon-head h2{font-size:13px; text-transform:uppercase; letter-spacing:.8px; color:var(--muted); margin:0; font-weight:600}
+  .legend{display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--muted)}
+  .legend i{display:inline-block; width:9px;height:9px;border-radius:2px; margin-right:5px; vertical-align:middle}
+  .ribbon-pins{position:relative; height:18px}
+  .pin{position:absolute; transform:translateX(-50%); cursor:pointer; bottom:0}
+  .pin .dot{width:11px;height:11px;border-radius:50%; background:var(--offline); border:2px solid var(--bg);
+            box-shadow:0 0 0 1px var(--offline); margin:0 auto}
+  .pin .stem{width:2px;height:6px;background:var(--offline);margin:1px auto 0}
+  .pin.captive .dot,.pin.captive .stem{background:var(--captive);box-shadow:0 0 0 1px var(--captive)}
+  .track{position:relative; height:34px; border-radius:7px; overflow:hidden; background:var(--gap)}
+  .seg{position:absolute; top:0; bottom:0}
+  .seg.online{background:linear-gradient(180deg,#2bbd85,#1f9468)}
+  .seg.hotspot{background:linear-gradient(180deg,#4f86ff,#2f63e6)}
+  .seg.offline{background:linear-gradient(180deg,#ff5c6c,#d83a4c)}
+  .seg.captive{background:linear-gradient(180deg,#f0a04b,#d97a26)}
+  .seg.gap{background:repeating-linear-gradient(45deg,#2a3850,#2a3850 5px,#222f44 5px,#222f44 10px)}
+  .ticks{position:relative; height:16px; margin-top:7px}
+  .tick{position:absolute; transform:translateX(-50%); font-size:10.5px; color:var(--faint); font-family:var(--mono); white-space:nowrap}
+  .tick:before{content:""; position:absolute; top:-9px; left:50%; width:1px; height:5px; background:var(--line)}
+
+  /* ---- feed ---- */
+  .feed{position:relative; padding-left:34px}
+  .feed:before{content:""; position:absolute; left:11px; top:6px; bottom:6px; width:2px; background:var(--line)}
+  .day{margin:26px 0 12px; font-size:12px; letter-spacing:1px; text-transform:uppercase; color:var(--muted); position:relative}
+  .day:first-child{margin-top:4px}
+  .node{position:relative; margin:10px 0}
+  .node:before{content:""; position:absolute; left:-28px; top:7px; width:13px;height:13px;border-radius:50%;
+               background:var(--panel); border:2px solid var(--faint)}
+  .node.calm:before{border-color:var(--online); background:var(--online)}
+  .node.calm.hot:before{border-color:var(--hotspot); background:var(--hotspot)}
+  .node.gap:before{border-color:var(--gap); background:var(--bg)}
+  .node.incident:before{border-color:var(--offline); background:var(--offline); box-shadow:0 0 0 4px rgba(240,76,94,.18)}
+
+  .pill{display:flex; align-items:center; gap:10px; color:var(--muted); font-size:13.5px; padding:3px 0}
+  .pill .t{font-family:var(--mono); font-size:12px; color:var(--faint)}
+  .pill .lead{color:var(--text); font-weight:600}
+  .pill.calm .lead{color:#bfe9d6}
+  .pill.calm.hot .lead{color:#cfe0ff}
+  .pill.gap{color:var(--faint); font-style:italic}
+  .tag{font-size:11px; padding:1px 7px; border-radius:999px; border:1px solid var(--line); color:var(--muted)}
+
+  .incident{background:var(--panel); border:1px solid #3a2630; border-left:3px solid var(--offline);
+            border-radius:12px; padding:14px 16px; box-shadow:var(--shadow)}
+  .incident.captive{border-left-color:var(--captive); border-color:#3a3326}
+  .inc-head{display:flex; align-items:center; gap:10px; flex-wrap:wrap}
+  .inc-head .ttl{font-weight:700; font-size:15px}
+  .inc-head .when{font-family:var(--mono); font-size:12px; color:var(--muted)}
+  .badge{margin-left:auto; font-size:12px; font-weight:600; padding:3px 10px; border-radius:999px}
+  .badge.ok{background:rgba(38,176,123,.16); color:#5fd6a6; border:1px solid rgba(38,176,123,.4)}
+  .badge.fail{background:rgba(240,76,94,.16); color:#ff8a96; border:1px solid rgba(240,76,94,.4)}
+  .steps{margin:12px 0 4px; padding:0; list-style:none}
+  .steps li{position:relative; padding:5px 0 5px 26px; font-size:13.5px; color:var(--text)}
+  .steps li:before{content:""; position:absolute; left:7px; top:0; bottom:0; width:2px; background:var(--line)}
+  .steps li:first-child:before{top:11px} .steps li:last-child:before{bottom:auto; height:11px}
+  .steps li .mk{position:absolute; left:0; top:7px; width:16px;height:16px;border-radius:50%;
+               background:var(--panel2); border:2px solid var(--faint); font-size:9px; line-height:13px; text-align:center; color:var(--faint)}
+  .steps li.ok .mk{border-color:var(--online); color:var(--online)}
+  .steps li.fail .mk{border-color:var(--offline); color:var(--offline)}
+  .steps li.work .mk{border-color:var(--hotspot); color:var(--hotspot)}
+  .steps li .st{font-family:var(--mono); font-size:11px; color:var(--faint); margin-right:8px}
+  .steps li .dt{color:var(--muted); font-size:12.5px}
+  .raw-toggle{margin-top:8px; font-size:11.5px; color:var(--faint); cursor:pointer; user-select:none; display:inline-block; border-bottom:1px dashed var(--line)}
+  .raw{display:none; margin-top:10px; padding:10px 12px; background:#0a0f16; border:1px solid var(--line); border-radius:8px;
+       font-family:var(--mono); font-size:11.5px; color:#9fb2c6; white-space:pre-wrap; max-height:280px; overflow:auto}
+  .raw.show{display:block}
+  .empty{color:var(--muted); padding:30px 4px; font-size:14px}
+
+  footer{margin-top:34px; color:var(--faint); font-size:12px; display:flex; gap:16px; align-items:center; flex-wrap:wrap}
+  footer .src{font-family:var(--mono)}
+  .ghost{color:var(--faint)}
+  a{color:#7fa8ff; text-decoration:none} a:hover{text-decoration:underline}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <svg class="glyph" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M24 6C14 6 7 13 7 24v9a5 5 0 0 0 5 5h24a5 5 0 0 0 5-5v-9C41 13 34 6 24 6Z" fill="#16212f" stroke="#3f7bff" stroke-width="2"/>
+      <path d="M14 25a14 14 0 0 1 20 0" stroke="#26b07b" stroke-width="2.4" stroke-linecap="round"/>
+      <path d="M18 29a8 8 0 0 1 12 0" stroke="#26b07b" stroke-width="2.4" stroke-linecap="round"/>
+      <circle cx="24" cy="33" r="2.4" fill="#26b07b"/>
+    </svg>
+    <div>
+      <h1>Limpet — Timeline</h1>
+      <div class="sub" id="subtitle">parsing journey…</div>
+    </div>
+  </header>
+
+  <section class="stats" id="stats"></section>
+
+  <section class="card ribbon-card">
+    <div class="ribbon-head">
+      <h2>Connection over time</h2>
+      <div class="legend">
+        <span><i style="background:var(--online)"></i>Online · Wi-Fi</span>
+        <span><i style="background:var(--hotspot)"></i>Online · hotspot</span>
+        <span><i style="background:var(--offline)"></i>Offline / fixing</span>
+        <span><i style="background:var(--gap)"></i>Asleep / not watching</span>
+      </div>
+    </div>
+    <div class="ribbon-pins" id="pins"></div>
+    <div class="track" id="track"></div>
+    <div class="ticks" id="ticks"></div>
+  </section>
+
+  <section class="feed" id="feed"></section>
+
+  <footer>
+    <span>Visual render of <span class="src">~/Library/Logs/limpet.log</span></span>
+    <span class="ghost">·</span>
+    <span class="raw-toggle" id="rawAll">show full raw log</span>
+  </footer>
+</div>
+
+<script type="application/x-limpet-log" id="rawlog">
+2026-06-15 14:52:00 limpet started (iface=en0, interval=45s, config=/Users/you/.config/limpet/config.sh).
+2026-06-15 14:52:02 Internet OK (route=en0, ssid=<redacted>).
+2026-06-15 14:52:42 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 14:58:02 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 15:03:22 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 15:08:42 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 15:14:02 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 15:19:22 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 15:24:42 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 15:30:02 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 15:35:22 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 15:40:42 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 15:46:02 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 15:51:22 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 15:56:42 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 16:02:02 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 16:07:22 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 16:12:42 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 16:18:02 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 16:23:22 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 16:28:42 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 16:30:05 limpet started (iface=en0, interval=45s, config=/Users/you/.config/limpet/config.sh).
+2026-06-15 16:30:07 Internet OK (route=en0, ssid=<redacted>).
+2026-06-15 16:35:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 16:40:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 16:45:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 16:51:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 16:56:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 17:01:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 17:07:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 17:12:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 17:17:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 17:23:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 17:28:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 17:33:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 17:39:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 17:44:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 17:49:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 17:55:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 18:00:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 18:05:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 18:11:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 18:16:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 18:21:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 18:27:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 18:32:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 18:37:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 18:43:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 18:48:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 18:53:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 18:59:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 19:04:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 19:09:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 19:15:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 19:20:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 19:25:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 19:31:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 19:36:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 19:41:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 19:47:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 19:52:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 19:57:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 20:03:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 20:08:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 20:13:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 20:19:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 20:24:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 20:29:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 20:35:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 20:40:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 20:45:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 20:51:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 20:56:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 21:01:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 21:07:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 21:12:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 21:17:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 21:23:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 21:28:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 21:33:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 21:39:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 21:44:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 21:49:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 21:55:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 22:00:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 22:05:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-15 22:11:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 09:05:00 limpet started (iface=en0, interval=45s, config=/Users/you/.config/limpet/config.sh).
+2026-06-16 09:05:02 Internet OK (route=en0, ssid=<redacted>).
+2026-06-16 09:09:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 09:14:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 09:19:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 09:25:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 09:30:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 09:35:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 09:41:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 09:46:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 09:51:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 09:57:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 10:02:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 10:07:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 10:13:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 10:18:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 10:23:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 10:29:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 10:34:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 10:39:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 10:45:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 10:50:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 10:55:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 11:01:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 11:06:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 11:08:29 No internet detected. ssid=(unknown).
+2026-06-16 11:08:35 Cycling Wi-Fi power to force reassociation.
+2026-06-16 11:09:10 Scan unavailable/empty -> trying known networks blindly.
+2026-06-16 11:09:12 Attempting to join 'Home_WiFi'.
+2026-06-16 11:09:18   networksetup: Could not find network Home_WiFi.
+2026-06-16 11:09:18   'Home_WiFi' not in range / join failed.
+2026-06-16 11:09:12 Attempting to join 'Office_WiFi'.
+2026-06-16 11:09:18   networksetup: Could not find network Office_WiFi.
+2026-06-16 11:09:18   'Office_WiFi' not in range / join failed.
+2026-06-16 11:09:40 Remediation failed (attempt 1). Backing off 90s.
+2026-06-16 11:11:19 No internet detected. ssid=(unknown).
+2026-06-16 11:11:26 Cycling Wi-Fi power to force reassociation.
+2026-06-16 11:12:05 Visible networks: Other Local Wi-Fi Networks
+2026-06-16 11:12:05 Preferred 'Home_WiFi' not visible -> skipping.
+2026-06-16 11:12:59 Remediation failed (attempt 2). Backing off 180s.
+2026-06-16 11:16:00 Internet OK (route=en0, ssid=<redacted>).
+2026-06-16 11:20:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 11:25:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 11:30:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 11:36:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 11:41:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 11:46:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 11:52:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 11:57:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 12:02:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 12:08:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 12:13:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 12:18:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 12:24:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 12:29:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 12:34:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 12:40:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 12:45:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 12:50:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 12:56:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 13:01:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 13:06:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 13:12:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 13:17:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 13:22:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 13:28:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 13:33:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 13:38:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 13:44:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 13:49:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 13:54:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 14:00:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 14:05:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 14:10:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 14:16:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 14:21:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 14:26:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 14:32:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 14:37:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 14:42:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 14:48:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 14:53:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 14:58:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 15:04:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 15:09:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 15:14:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 15:20:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 15:25:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 15:30:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 15:36:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 15:41:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 15:46:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 15:52:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 15:57:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 16:02:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 16:08:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 16:13:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 16:18:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 16:24:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 16:29:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 16:34:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 16:40:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 16:45:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 16:50:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 16:56:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 17:01:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 17:06:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 17:12:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 17:17:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 17:22:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 17:28:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 17:33:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 17:38:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 17:44:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 17:49:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 17:54:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 18:00:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 18:05:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 18:10:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 18:16:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 18:21:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 18:26:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 18:32:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 18:37:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 18:42:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 18:48:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 18:53:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 18:58:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 19:04:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 19:09:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 19:14:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 19:20:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 19:25:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 19:30:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 19:36:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 19:41:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 19:46:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 19:52:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 19:57:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 20:02:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 20:08:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 20:13:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 20:18:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 20:24:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 20:29:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 20:34:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 20:40:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 20:45:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 20:50:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 20:56:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 21:01:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 21:06:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 21:12:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 21:17:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 21:22:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 21:28:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 21:33:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 21:38:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 21:44:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 21:49:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 21:54:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 22:00:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 22:05:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 22:10:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 22:16:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 22:21:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 22:26:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 22:32:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 22:37:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 22:42:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 22:48:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 22:53:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 22:58:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 23:04:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 23:09:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 23:14:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 23:20:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-16 23:25:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 08:30:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 08:35:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 08:40:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 08:46:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 08:51:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 08:56:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 09:02:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 09:07:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 09:12:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 09:18:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 09:23:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 09:28:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 09:34:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 09:39:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 09:44:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 09:50:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 09:55:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 10:00:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 10:06:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 10:11:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 10:16:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 10:22:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 10:27:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 10:32:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 10:38:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 10:43:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 10:48:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 10:54:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 10:59:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 11:04:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 11:10:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 11:15:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 11:20:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 11:26:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 11:31:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 11:34:54 No internet detected. ssid=(unknown).
+2026-06-17 11:35:15 Cycling Wi-Fi power to force reassociation.
+2026-06-17 11:36:02 Scan unavailable/empty -> trying known networks blindly.
+2026-06-17 11:36:04 Attempting to join 'Home_WiFi'.
+2026-06-17 11:36:12   networksetup: Could not find network Home_WiFi.
+2026-06-17 11:36:12   'Home_WiFi' not in range / join failed.
+2026-06-17 11:36:04 Attempting to join 'Office_WiFi'.
+2026-06-17 11:36:12   networksetup: Could not find network Office_WiFi.
+2026-06-17 11:36:12   'Office_WiFi' not in range / join failed.
+2026-06-17 11:36:22 Yielding 15s to macOS Auto-Join Hotspot before the password join...
+2026-06-17 11:37:23 Recovered via macOS Auto-Join Hotspot.
+2026-06-17 11:37:23 Remediation succeeded.
+2026-06-17 11:38:30 Current connection looks like hotspot (ssid=<redacted>, gateway=172.20.10.1) -> checking preferred Wi-Fi.
+2026-06-17 11:39:03 Scan unavailable/empty -> trying known networks blindly.
+2026-06-17 11:39:24 No preferred Wi-Fi with real internet found while on hotspot.
+2026-06-17 11:39:25 Internet still OK after preferred Wi-Fi check; staying on current connection.
+2026-06-17 11:44:00 Current connection looks like hotspot (ssid=<redacted>, gateway=172.20.10.1) -> checking preferred Wi-Fi.
+2026-06-17 11:44:20 Internet still OK after preferred Wi-Fi check; staying on current connection.
+2026-06-17 11:49:20 Current connection looks like hotspot (ssid=<redacted>, gateway=172.20.10.1) -> checking preferred Wi-Fi.
+2026-06-17 11:49:40 Internet still OK after preferred Wi-Fi check; staying on current connection.
+2026-06-17 11:54:40 Current connection looks like hotspot (ssid=<redacted>, gateway=172.20.10.1) -> checking preferred Wi-Fi.
+2026-06-17 11:55:00 Internet still OK after preferred Wi-Fi check; staying on current connection.
+2026-06-17 11:58:40 Switched from hotspot to preferred Wi-Fi.
+2026-06-17 12:02:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 12:07:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 12:12:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 12:18:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 12:23:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 12:28:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 12:34:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 12:39:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 12:44:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 12:50:00 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 12:55:20 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+2026-06-17 13:00:40 Prefer Wi-Fi check skipped; current network does not look like hotspot (ssid=<redacted>, gateway=192.168.1.1).
+
+</script>
+
+<script>
+"use strict";
+(function(){
+  var GAP_MS = 12*60*1000;            // > this between log lines => "asleep / not watching"
+  var HOTSPOT_GW = /^172\.20\.10\./;  // iPhone personal-hotspot range
+  var currentRAW = '';
+
+  // ---- shared helpers ----
+  function parseTs(s){ // "2026-06-17 11:34:54" -> Date (local)
+    var m=/^(\d{4})-(\d\d)-(\d\d) (\d\d):(\d\d):(\d\d)/.exec(s); if(!m) return null;
+    return new Date(+m[1],+m[2]-1,+m[3],+m[4],+m[5],+m[6]);
+  }
+  function fmtDur(ms){
+    var s=Math.round(ms/1000), h=Math.floor(s/3600), mn=Math.floor(s%3600/60), se=s%60;
+    if(h>0) return h+'h '+(mn>0?mn+'m':''); if(mn>0) return mn+'m '+(se>0?se+'s':''); return se+'s';
+  }
+  function fmtClock(d){ return ('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2); }
+  function fmtClockS(d){ return fmtClock(d)+':'+('0'+d.getSeconds()).slice(-2); }
+  var DOW=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'], MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  function fmtDay(d){ return DOW[d.getDay()]+', '+MON[d.getMonth()]+' '+d.getDate(); }
+  function isHot(gw){ return gw && HOTSPOT_GW.test(gw); }
+  function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function recoverTxt(via){
+    return via==='autojoin' ? 'Recovered via macOS Auto-Join — iPhone hotspot woke over Bluetooth'
+         : via==='cycle' ? 'Recovered after the Wi-Fi power cycle'
+         : via==='existing' ? 'Recovered on an auto-joined network'
+         : 'Internet recovered';
+  }
+
+  // ---- tokenize a raw log into typed events ----
+  function tokenize(raw){
+    var ev=[];
+    raw.split('\n').forEach(function(line){
+      var t=parseTs(line); if(!t) return;
+      var m=line.slice(20).trim(); var e={t:t, raw:line, msg:m, kind:'other'}; var r;
+      if(/^limpet started/.test(m)) e.kind='start';
+      else if(/^Internet OK/.test(m)) e.kind='ok';
+      else if((r=/^Prefer Wi-Fi check skipped.*gateway=([\d.]+)/.exec(m))){ e.kind='beat'; e.gw=r[1]; }
+      else if(/^No internet detected/.test(m)) e.kind='offline';
+      else if(/captive portal\)/.test(m)) e.kind='captive';
+      else if(/^Cycling Wi-Fi power/.test(m)){ e.kind='step'; e.step='cycle'; }
+      else if(/^Scan unavailable/.test(m)){ e.kind='step'; e.step='scanblind'; }
+      else if((r=/^Visible networks:\s*(.*)/.exec(m))){ e.kind='step'; e.step='scan'; e.list=r[1]; }
+      else if((r=/^Preferred '(.+)' not visible/.exec(m))){ e.kind='step'; e.step='notvisible'; e.ssid=r[1]; }
+      else if((r=/^Hotspot '(.+)' not seen/.exec(m))){ e.kind='step'; e.step='hotnotseen'; e.ssid=r[1]; }
+      else if((r=/^Attempting to join '(.+)'/.exec(m))){ e.kind='step'; e.step='join'; e.ssid=r[1]; }
+      else if((r=/^networksetup:\s*(.+)/.exec(m))){ e.kind='step'; e.step='nsout'; e.detail=r[1]; }
+      else if((r=/^'(.+)' not in range/.exec(m))){ e.kind='step'; e.step='joinfail'; e.ssid=r[1]; }
+      else if(/^No link\/IP after joining/.test(m)){ e.kind='step'; e.step='nolink'; }
+      else if((r=/^Internet OK via '(.+)'/.exec(m))){ e.kind='step'; e.step='joinok'; e.ssid=r[1]; }
+      else if((r=/^Joined '(.+)' but still no internet/.exec(m))){ e.kind='step'; e.step='joinnoinet'; e.ssid=r[1]; }
+      else if((r=/^Yielding (\d+)s to macOS Auto-Join/.exec(m))){ e.kind='step'; e.step='yield'; e.secs=+r[1]; }
+      else if(/^Recovered via macOS Auto-Join Hotspot/.test(m)){ e.kind='recover'; e.via='autojoin'; }
+      else if(/^Recovered via existing\/auto-joined/.test(m)){ e.kind='recover'; e.via='existing'; }
+      else if(/^Recovered after Wi-Fi power cycle/.test(m)){ e.kind='recover'; e.via='cycle'; }
+      else if(/^Internet recovered during Auto-Join wait.*hotspot/.test(m)){ e.kind='recover'; e.via='autojoin'; }
+      else if(/^Internet recovered during Auto-Join wait/.test(m)){ e.kind='recover'; e.via='wait'; }
+      else if(/^Switched from hotspot to preferred Wi-Fi/.test(m)){ e.kind='switchwifi'; }
+      else if(/^Remediation succeeded/.test(m)){ e.kind='remok'; }
+      else if((r=/^Remediation failed \(attempt (\d+)\)\. Backing off (\d+)s/.exec(m))){ e.kind='remfail'; e.attempt=+r[1]; e.backoff=+r[2]; }
+      else if((r=/^Current connection looks like hotspot.*gateway=([\d.]+)/.exec(m))){ e.kind='prefcheck'; e.gw=r[1]; }
+      else if(/^No preferred Wi-Fi with real internet/.test(m)){ e.kind='step'; e.step='nopref'; }
+      else if(/^Internet still OK after preferred/.test(m)){ e.kind='prefstay'; }
+      else if(/^Log rotated/.test(m)){ e.kind='meta'; }
+      ev.push(e);
+    });
+    return ev;
+  }
+
+  function addStep(inc, e){
+    if(e.step==='cycle') inc.steps.push({cls:'work', mk:'↻', txt:'Cycled Wi-Fi off and on', t:e.t});
+    else if(e.step==='scanblind') inc.steps.push({cls:'work', mk:'?', txt:'Scan came back empty — trying saved networks blind', t:e.t});
+    else if(e.step==='scan') inc.steps.push({cls:'work', mk:'?', txt:'Scanned the air', sub:e.list, t:e.t});
+    else if(e.step==='yield') inc.steps.push({cls:'work', mk:'↑', txt:'Yielded '+e.secs+'s to macOS Auto-Join (Bluetooth wake)', t:e.t});
+    else if(e.step==='join'){
+      var last=inc.steps[inc.steps.length-1];
+      if(last && last.join===e.ssid && last.cls==='fail'){ last.count=(last.count||1)+1; last._pending=true; }
+      else inc.steps.push({cls:'work', mk:'↑', txt:"Tried to join ‘"+e.ssid+"’", join:e.ssid, _pending:true, t:e.t});
+    }
+    else if(e.step==='joinfail'||e.step==='nolink'||e.step==='joinnoinet'){
+      var l=inc.steps[inc.steps.length-1];
+      if(l && l._pending){ l.cls='fail'; l.mk='✕'; l._pending=false;
+        l.sub = e.step==='joinfail'?'not in range':(e.step==='nolink'?'no link / IP':'joined, but no internet'); }
+    }
+    else if(e.step==='joinok'){
+      var lo=inc.steps[inc.steps.length-1];
+      if(lo && lo._pending){ lo.cls='ok'; lo.mk='✓'; lo._pending=false; lo.sub='internet confirmed'; }
+    }
+  }
+
+  // ---- build the model (segments + incidents + chronological feed) ----
+  function build(ev, resolveLabel){
+    var segs=[], incidents=[], feed=[];
+    var onlineKind='wifi', lastGateway='', state=null, segStart=null;
+    var t0=ev[0].t, tN=ev[ev.length-1].t;
+    function pushSeg(end){ if(state){ segs.push({state:state, kind:onlineKind, a:segStart, b:end}); } }
+    function setState(ns, t){ if(ns===state) return; pushSeg(t); state=ns; segStart=t; }
+
+    var calm=null;
+    function flushCalm(end){ if(calm){ calm.end=end; feed.push(calm); calm=null; } }
+    function calmAdd(e){
+      var hot = (e.kind==='beat'||e.kind==='prefcheck'||e.kind==='prefstay') ? isHot(e.gw) : (onlineKind==='hotspot');
+      var k = hot?'hotspot':'wifi';
+      var gw = e.gw || lastGateway || '';
+      var lbl = resolveLabel ? resolveLabel(hot ? (gw || '172.20.10.1') : gw) : null;
+      // split a calm run on substate change, label change, or a day boundary
+      if(calm && (calm.kind!==k || calm.lbl!==lbl || calm.start.toDateString()!==e.t.toDateString())) flushCalm(e.t);
+      if(!calm) calm={type:'calm', kind:k, lbl:lbl, gw:gw, start:e.t, end:e.t, beats:0, restarts:0, tests:0, prefchecks:0};
+      calm.end=e.t; if(gw) calm.gw=gw;
+      if(e.kind==='beat') calm.beats++;
+      if(e.kind==='start') calm.restarts++;
+      if(e.kind==='prefcheck'||e.kind==='prefstay') calm.prefchecks++;
+    }
+
+    var inIncident=null, prevT=null;
+    ev.forEach(function(e){
+      if(prevT && (e.t-prevT)>GAP_MS && !inIncident){
+        flushCalm(prevT); setState('gap', prevT); feed.push({type:'gap', start:prevT, end:e.t});
+      }
+      prevT=e.t;
+      if(e.gw){ onlineKind = isHot(e.gw)?'hotspot':'wifi'; lastGateway=e.gw; }
+
+      if(e.kind==='offline'||e.kind==='captive'){
+        if(!inIncident){
+          flushCalm(e.t); setState(e.kind==='captive'?'captive':'offline', e.t);
+          inIncident={type:'incident', kind:e.kind, start:e.t, end:null, steps:[], raw:[e.raw], outcome:null};
+          incidents.push(inIncident); feed.push(inIncident);
+        } else { inIncident.raw.push(e.raw); }
+        return;
+      }
+      if(inIncident){
+        inIncident.raw.push(e.raw);
+        if(e.kind==='step') addStep(inIncident, e);
+        else if(e.kind==='remfail') inIncident.steps.push({cls:'fail', mk:'!', txt:'No luck — backing off '+e.backoff+'s', sub:'attempt '+e.attempt, t:e.t});
+        else if(e.kind==='recover' || e.kind==='remok' || e.kind==='ok' || e.kind==='beat'){
+          if(e.kind==='recover'){ inIncident.via=e.via; inIncident.steps.push({cls:'ok', mk:'✓', txt:recoverTxt(e.via), t:e.t}); }
+          if((e.kind==='ok'||e.kind==='beat') && !inIncident.via){ inIncident.via='self'; inIncident.steps.push({cls:'ok', mk:'✓', txt:'Internet came back on its own', t:e.t}); }
+          inIncident.end=e.t;
+          inIncident.landed = (onlineKind==='hotspot' || inIncident.via==='autojoin') ? 'hotspot':'wifi';
+          inIncident.landedGw = (onlineKind==='hotspot' || inIncident.via==='autojoin') ? '172.20.10.1' : lastGateway;
+          inIncident.outcome='ok';
+          setState(onlineKind==='hotspot'?'hotspot':'online', e.t);
+          inIncident=null;
+          if(e.kind==='beat'||e.kind==='ok') calmAdd(e);
+        }
+        return;
+      }
+      if(e.kind==='ok'||e.kind==='beat'||e.kind==='start'||e.kind==='prefcheck'||e.kind==='prefstay'||e.kind==='switchwifi'){
+        setState(onlineKind==='hotspot'?'hotspot':'online', e.t); calmAdd(e);
+      } else if(e.kind==='step' && e.step==='join' && calm){ calm.tests++; }
+    });
+    flushCalm(tN); pushSeg(tN);
+    if(inIncident){ inIncident.end=tN; inIncident.outcome='open'; }
+    return {segs:segs, incidents:incidents, feed:feed, t0:t0, tN:tN};
+  }
+
+  // ---- render the model into the DOM (idempotent: called on load + live refresh) ----
+  function render(raw, opts){
+    currentRAW = (raw||'').replace(/^\n/,'').replace(/\s+$/,'');
+    var labels = (opts && opts.labels) || [];
+    function resolveLabel(gw){
+      if(!gw) return null; var best=null;
+      labels.forEach(function(e){ if(gw===e.m || gw.indexOf(e.m)===0){ if(!best || e.m.length>best.len) best={len:e.m.length, label:e.l}; } });
+      return best ? best.label : null;
+    }
+    var ev = tokenize(currentRAW);
+    var feedEl=document.getElementById('feed');
+    var statsEl=document.getElementById('stats');
+    var track=document.getElementById('track'), pins=document.getElementById('pins'), ticks=document.getElementById('ticks');
+    var full=document.getElementById('fullraw'); if(full) full.remove();
+    statsEl.innerHTML=''; track.innerHTML=''; pins.innerHTML=''; ticks.innerHTML=''; feedEl.innerHTML='';
+
+    if(ev.length===0){
+      document.getElementById('subtitle').textContent='no activity logged yet';
+      feedEl.innerHTML='<div class="empty">No Limpet activity recorded yet. Once the agent has run for a while, the journey shows up here.</div>';
+      return;
+    }
+
+    var M=build(ev, resolveLabel), segs=M.segs, incidents=M.incidents, feed=M.feed, t0=M.t0, tN=M.tN, span=Math.max(tN-t0,1);
+
+    // stats
+    var onlineMs=0, offMs=0, gapMs=0, hotMs=0;
+    segs.forEach(function(s){var d=s.b-s.a;
+      if(s.state==='gap') gapMs+=d; else if(s.state==='offline'||s.state==='captive') offMs+=d;
+      else { onlineMs+=d; if(s.kind==='hotspot') hotMs+=d; } });
+    var monitored=onlineMs+offMs, uptime = monitored>0 ? (onlineMs/monitored*100) : 100;
+    var longest=0; incidents.forEach(function(i){ if(i.end) longest=Math.max(longest,i.end-i.start); });
+    var restarts=ev.filter(function(e){return e.kind==='start';}).length;
+    var rescues=incidents.filter(function(i){return i.via==='autojoin';}).length;
+
+    document.getElementById('subtitle').innerHTML =
+      '<b>'+fmtDay(t0)+' '+fmtClock(t0)+'</b> → <b>'+fmtDay(tN)+' '+fmtClock(tN)+'</b> · '+fmtDur(span)+' watched';
+
+    var stats=[
+      {k:'Online', v:uptime.toFixed(uptime>=99.95?0:1)+'<small>%</small>', cls: uptime>=99?'good':'bad'},
+      {k:'Incidents', v:incidents.length, cls: incidents.length?'bad':'good'},
+      {k:'Worst outage', v: longest?fmtDur(longest):'—', cls:''},
+      {k:'Hotspot rescues', v:rescues, cls: rescues?'good':''},
+      {k:'Agent restarts', v:restarts, cls:''}
+    ];
+    statsEl.innerHTML = stats.map(function(s){
+      return '<div class="stat '+s.cls+'"><div class="k">'+s.k+'</div><div class="v">'+s.v+'</div></div>'; }).join('');
+
+    // ribbon
+    function pct(t){ return ((t-t0)/span*100); }
+    segs.forEach(function(s){
+      var cls = s.state==='online'?(s.kind==='hotspot'?'hotspot':'online') : s.state;
+      var d=document.createElement('div'); d.className='seg '+cls;
+      d.style.left=pct(s.a)+'%'; d.style.width=Math.max(pct(s.b)-pct(s.a),0)+'%';
+      d.title = (cls==='gap'?'Asleep / not watching':cls==='offline'?'Offline / fixing':cls==='hotspot'?'Online via hotspot':'Online via Wi-Fi')
+        +' · '+fmtClock(s.a)+'–'+fmtClock(s.b)+' ('+fmtDur(s.b-s.a)+')';
+      track.appendChild(d);
+    });
+    incidents.forEach(function(inc,idx){
+      var p=document.createElement('div'); p.className='pin'+(inc.kind==='captive'?' captive':'');
+      p.style.left=pct(inc.start)+'%';
+      p.title='Incident '+(idx+1)+' · '+fmtClockS(inc.start)+(inc.end?(' · down '+fmtDur(inc.end-inc.start)):'');
+      p.innerHTML='<div class="dot"></div><div class="stem"></div>';
+      p.onclick=function(){ var el=document.getElementById('inc'+idx); if(el){ el.scrollIntoView({behavior:'smooth',block:'center'});
+        el.style.boxShadow='0 0 0 3px rgba(240,76,94,.5)'; setTimeout(function(){el.style.boxShadow='';},1200);} };
+      pins.appendChild(p);
+    });
+    var cur=new Date(t0.getFullYear(),t0.getMonth(),t0.getDate(),Math.ceil(t0.getHours()/6)*6,0,0);
+    while(cur<tN){
+      var x=pct(cur); if(x>=0&&x<=100){
+        var tk=document.createElement('div'); tk.className='tick'; tk.style.left=x+'%';
+        tk.textContent = cur.getHours()===0 ? fmtDay(cur).split(',')[1].trim() : fmtClock(cur);
+        ticks.appendChild(tk);
+      }
+      cur=new Date(cur.getTime()+6*3600*1000);
+    }
+
+    // feed
+    var lastDay='';
+    function dayDivider(d){ var k=fmtDay(d); if(k!==lastDay){ lastDay=k;
+      var el=document.createElement('div'); el.className='day'; el.textContent=k; feedEl.appendChild(el);} }
+
+    feed.forEach(function(it){
+      dayDivider(it.start);
+      if(it.type==='calm'){
+        var hot=it.kind==='hotspot';
+        var node=document.createElement('div'); node.className='node calm'+(hot?' hot':'');
+        var extra=[];
+        if(it.restarts) extra.push(it.restarts+' restart'+(it.restarts>1?'s':''));
+        if(it.tests) extra.push(it.tests+' manual test-join'+(it.tests>1?'s':''));
+        var checks=it.beats+it.prefchecks;
+        var quiet = checks>0 ? checks+' quiet check'+(checks>1?'s':'') : 'steady';
+        node.innerHTML='<div class="pill calm'+(hot?' hot':'')+'">'+
+          '<span class="t">'+fmtClock(it.start)+'</span>'+
+          '<span class="lead">'+(it.lbl ? ('Online · '+escapeHtml(it.lbl)) : (hot?'On the iPhone hotspot':'Online on Wi-Fi'))+'</span>'+
+          '<span>· '+fmtDur(Math.max(it.end-it.start,1000))+'</span>'+
+          '<span class="tag">'+quiet+(extra.length?' · '+extra.join(' · '):'')+'</span></div>';
+        feedEl.appendChild(node);
+      } else if(it.type==='gap'){
+        var g=document.createElement('div'); g.className='node gap';
+        g.innerHTML='<div class="pill gap"><span class="t">'+fmtClock(it.start)+'</span>'+
+          '<span>Mac asleep / Limpet not watching · '+fmtDur(it.end-it.start)+'</span></div>';
+        feedEl.appendChild(g);
+      } else if(it.type==='incident'){
+        var idx=incidents.indexOf(it);
+        var n=document.createElement('div'); n.className='node incident';
+        var dur = it.end?fmtDur(it.end-it.start):'ongoing';
+        var landLbl = resolveLabel(it.landedGw);
+        var landTxt = it.outcome==='ok'
+          ? (landLbl ? ('landed on '+escapeHtml(landLbl)) : (it.landed==='hotspot'?'landed on the iPhone hotspot':'back on Wi-Fi'))
+          : 'unresolved';
+        var badge = it.outcome==='ok'
+          ? '<span class="badge ok">Back online in '+dur+' · '+landTxt+'</span>'
+          : '<span class="badge fail">Still down · '+dur+'</span>';
+        var steps=it.steps.map(function(s){
+          return '<li class="'+s.cls+'"><span class="mk">'+s.mk+'</span>'+
+            '<span class="st">'+fmtClock(s.t)+'</span>'+escapeHtml(s.txt)+
+            (s.count&&s.count>1?' <span class="dt">(×'+s.count+')</span>':'')+
+            (s.sub?' <span class="dt">— '+escapeHtml(s.sub)+'</span>':'')+'</li>';
+        }).join('');
+        n.innerHTML='<div class="incident'+(it.kind==='captive'?' captive':'')+'" id="inc'+idx+'">'+
+          '<div class="inc-head"><span class="ttl">'+(it.kind==='captive'?'Captive portal':'Lost the internet')+'</span>'+
+          '<span class="when">'+fmtClockS(it.start)+'</span>'+badge+'</div>'+
+          '<ul class="steps">'+steps+'</ul>'+
+          '<span class="raw-toggle" data-raw="r'+idx+'">view raw log lines ('+it.raw.length+')</span>'+
+          '<div class="raw" id="r'+idx+'">'+escapeHtml(it.raw.join('\n'))+'</div></div>';
+        feedEl.appendChild(n);
+      }
+    });
+  }
+
+  // ---- listeners attached once (survive re-renders via delegation) ----
+  document.getElementById('feed').addEventListener('click', function(e){
+    var key=e.target.getAttribute && e.target.getAttribute('data-raw'); if(!key) return;
+    var el=document.getElementById(key); if(!el) return;
+    el.classList.toggle('show');
+    e.target.textContent = el.classList.contains('show') ? 'hide raw log lines' : 'view raw log lines ('+el.textContent.split('\n').length+')';
+  });
+  document.getElementById('rawAll').addEventListener('click', function(){
+    var ex=document.getElementById('fullraw');
+    if(ex){ ex.remove(); this.textContent='show full raw log'; return; }
+    var d=document.createElement('div'); d.className='raw show'; d.id='fullraw'; d.style.marginTop='12px';
+    d.textContent=currentRAW; this.parentNode.appendChild(d); this.textContent='hide full raw log';
+  });
+
+  // Native host (the menu-bar app) calls window.LIMPET_RENDER(freshLog) on a timer for live updates.
+  window.LIMPET_RENDER = render;
+
+  // Initial paint from the embedded sample (also what a standalone double-click shows).
+  // The menu-bar app re-calls LIMPET_RENDER(liveLog, {labels:[...]}) with your real config;
+  // these demo labels just make the standalone sample read nicely.
+  render(document.getElementById('rawlog').textContent, {labels:[
+    {m:"192.168.1.1", l:"Home"},
+    {m:"172.20.10.", l:"iPhone hotspot"}
+  ]});
+})();
+</script>
+</body>
+</html>

@@ -58,6 +58,11 @@ PREFER_WIFI_OVER_HOTSPOT=1
 PREFER_WIFI_CHECK_INTERVAL=300             # how often to try the upgrade off hotspot
 HOTSPOT_GATEWAY_PREFIXES=( "172.20.10." )
 
+# Friendly names for networks, keyed by gateway (the only stable signal when the
+# SSID is "<redacted>"). Each entry is "gateway-or-prefix=Label"; used only for
+# display in the menu-bar Timeline. Empty by default.
+NETWORK_LABELS=()
+
 # macOS native Auto-Join Hotspot (Continuity, same Apple ID). On macOS 26+, enable
 # Wi-Fi Settings > "Ask to join hotspots" > Automatic (and keep Bluetooth on), and
 # macOS joins your iPhone's hotspot over Bluetooth -- even a dormant one. When this
@@ -685,6 +690,9 @@ case "${1:-}" in
     echo "PREFER_WIFI_OVER_HOTSPOT=$PREFER_WIFI_OVER_HOTSPOT"
     echo "CHECK_INTERVAL=$CHECK_INTERVAL"
     echo "MAX_INTERVAL=$MAX_INTERVAL"
+    for entry in ${NETWORK_LABELS[@]+"${NETWORK_LABELS[@]}"}; do
+      echo "NETWORK_LABEL=$entry"
+    done
     if [ -n "$HOTSPOT_PASSWORD" ] || \
        security find-generic-password -s "$HOTSPOT_KEYCHAIN_SERVICE" -a "$HOTSPOT_SSID" -w >/dev/null 2>&1; then
       echo "HOTSPOT_PASSWORD_SET=1"
@@ -699,7 +707,7 @@ case "${1:-}" in
     # --set-config KEY VALUE : upsert one whitelisted key in the user config.
     key="${2:-}"; value="${3:-}"
     case "$key" in
-      HOTSPOT_SSID|TRY_REMEMBERED_HOTSPOT|PREFER_WIFI_OVER_HOTSPOT|CHECK_INTERVAL|MAX_INTERVAL) ;;
+      HOTSPOT_SSID|TRY_REMEMBERED_HOTSPOT|PREFER_WIFI_OVER_HOTSPOT|CHECK_INTERVAL|MAX_INTERVAL|NETWORK_LABELS) ;;
       *) echo "Refusing to set unknown key: '$key'" >&2; exit 1 ;;
     esac
     case "$key" in

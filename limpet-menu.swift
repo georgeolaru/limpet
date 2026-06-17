@@ -1,6 +1,7 @@
 import AppKit
 import Darwin
 import Foundation
+import WebKit
 
 private let daemonLabel = "com.georgeolaru.limpet"
 private let menuLabel = "com.georgeolaru.limpet.menu"
@@ -81,6 +82,18 @@ private func listSavedNetworks() -> [String] {
         .filter { !$0.isEmpty }
 }
 
+/// The gateway of the network this Mac is on right now (the runtime label key).
+private func currentGateway() -> String {
+    let result = Shell.run("/sbin/route", ["-n", "get", "default"])
+    for line in result.output.split(whereSeparator: \.isNewline) {
+        let s = String(line).trimmingCharacters(in: .whitespaces)
+        if s.hasPrefix("gateway:") {
+            return s.dropFirst("gateway:".count).trimmingCharacters(in: .whitespaces)
+        }
+    }
+    return ""
+}
+
 private struct LimpetSettings {
     var hotspotSSID = ""
     var tryRemembered = true
@@ -88,6 +101,24 @@ private struct LimpetSettings {
     var checkInterval = 45
     var maxInterval = 300
     var passwordSet = false
+    var networkLabels: [(match: String, label: String)] = []
+}
+
+extension Notification.Name {
+    static let limpetConfigChanged = Notification.Name("com.georgeolaru.limpet.configChanged")
+}
+
+/// Resolve a gateway to a friendly label. Exact match wins; otherwise the longest
+/// matching prefix (so "192.168.68.1=Home" beats a broad "192.168.=LAN").
+private func resolveNetworkLabel(_ gateway: String, labels: [(match: String, label: String)]) -> String? {
+    guard !gateway.isEmpty else { return nil }
+    var best: (len: Int, label: String)?
+    for entry in labels where !entry.match.isEmpty {
+        if gateway == entry.match || gateway.hasPrefix(entry.match) {
+            if best == nil || entry.match.count > best!.len { best = (entry.match.count, entry.label) }
+        }
+    }
+    return best?.label
 }
 
 private func loadSettings() -> LimpetSettings {
@@ -105,6 +136,13 @@ private func loadSettings() -> LimpetSettings {
         case "CHECK_INTERVAL": s.checkInterval = Int(value) ?? 45
         case "MAX_INTERVAL": s.maxInterval = Int(value) ?? 300
         case "HOTSPOT_PASSWORD_SET": s.passwordSet = (value == "1")
+        case "NETWORK_LABEL":
+            let kv = value.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            if kv.count == 2 {
+                let match = String(kv[0]).trimmingCharacters(in: .whitespaces)
+                let label = String(kv[1]).trimmingCharacters(in: .whitespaces)
+                if !match.isEmpty && !label.isEmpty { s.networkLabels.append((match, label)) }
+            }
         default: break
         }
     }
@@ -542,6 +580,185 @@ private final class AboutPane: SettingsPane {
     }
 }
 
+// MARK: Networks pane (gateway → friendly label)
+
+private final class NetworksPane: SettingsPane {
+    private let rowsStack = NSStackView()
+    private var rows: [(container: NSView, gw: NSTextField, label: NSTextField)] = []
+    private let statusLabel = NSTextField(labelWithString: "")
+    private let currentInfoLabel = NSTextField(wrappingLabelWithString: "")
+    private let currentNameField = NSTextField()
+    private var currentGW = ""
+
+    override func build() {
+        addRow(sectionHeader("Network labels"))
+        addRow(captionLabel("Name the networks you use, so the Timeline says “Home” instead of an IP. Easiest way: while you’re ON a network, name it below — Limpet remembers it by its gateway, since macOS hides the Wi-Fi name itself (“<redacted>”)."))
+
+        // ---- Connected right now: one-tap labeling, no IP knowledge needed ----
+        addRow(divider())
+        addRow(sectionHeader("Connected right now"))
+        currentInfoLabel.font = NSFont.systemFont(ofSize: 12)
+        currentInfoLabel.textColor = .secondaryLabelColor
+        currentInfoLabel.preferredMaxLayoutWidth = paneWidth - 48
+        addRow(currentInfoLabel)
+
+        currentNameField.placeholderString = "e.g. Home, Office, Mom’s place"
+        currentNameField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let labelBtn = NSButton(title: "Name this network", target: self, action: #selector(labelCurrent))
+        labelBtn.bezelStyle = .rounded
+        labelBtn.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        let inputRow = NSStackView(views: [currentNameField, labelBtn])
+        inputRow.orientation = .horizontal
+        inputRow.spacing = 8
+        addRow(inputRow)
+        inputRow.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+
+        currentGW = currentGateway()
+        refreshCurrentCard()
+
+        // ---- All labels (editable, gateway → name) ----
+        addRow(divider())
+        addRow(sectionHeader("All labels"))
+        let heading = NSStackView(views: [columnHeader("Gateway / prefix", 150), columnHeader("Label", nil)])
+        heading.orientation = .horizontal
+        heading.spacing = 8
+        addRow(heading)
+        heading.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+
+        rowsStack.orientation = .vertical
+        rowsStack.alignment = .leading
+        rowsStack.spacing = 8
+        addRow(rowsStack)
+
+        let existing = loadSettings().networkLabels
+        if existing.isEmpty {
+            addEntryRow(gw: "", label: "")
+        } else {
+            for entry in existing { addEntryRow(gw: entry.match, label: entry.label) }
+        }
+
+        let addButton = NSButton(title: "Add manually", target: self, action: #selector(addRowTapped))
+        addButton.bezelStyle = .rounded
+        let saveButton = NSButton(title: "Save", target: self, action: #selector(save))
+        saveButton.bezelStyle = .rounded
+        saveButton.keyEquivalent = "\r"
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let buttons = NSStackView(views: [addButton, spacer, saveButton])
+        buttons.orientation = .horizontal
+        addRow(buttons)
+        buttons.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+
+        statusLabel.font = NSFont.systemFont(ofSize: 12)
+        statusLabel.textColor = .secondaryLabelColor
+        addRow(statusLabel)
+    }
+
+    private func columnHeader(_ text: String, _ width: CGFloat?) -> NSView {
+        let l = NSTextField(labelWithString: text.uppercased())
+        l.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
+        l.textColor = .tertiaryLabelColor
+        if let w = width { l.widthAnchor.constraint(equalToConstant: w).isActive = true }
+        return l
+    }
+
+    private func addEntryRow(gw: String, label: String) {
+        let gwField = NSTextField(string: gw)
+        gwField.placeholderString = "192.168.68.1"
+        gwField.widthAnchor.constraint(equalToConstant: 150).isActive = true
+        let labelField = NSTextField(string: label)
+        labelField.placeholderString = "Home"
+        labelField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let remove = NSButton(title: "✕", target: self, action: #selector(removeRowTapped(_:)))
+        remove.bezelStyle = .rounded
+        remove.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        let row = NSStackView(views: [gwField, labelField, remove])
+        row.orientation = .horizontal
+        row.spacing = 8
+        row.distribution = .fill
+        rowsStack.addArrangedSubview(row)
+        row.widthAnchor.constraint(equalTo: rowsStack.widthAnchor).isActive = true
+        rows.append((row, gwField, labelField))
+    }
+
+    @objc private func addRowTapped() {
+        addEntryRow(gw: "", label: "")
+        view.window?.layoutIfNeeded()
+    }
+
+    @objc private func removeRowTapped(_ sender: NSButton) {
+        guard let rowView = sender.superview else { return }
+        rowsStack.removeArrangedSubview(rowView)
+        rowView.removeFromSuperview()
+        rows.removeAll { $0.container === rowView }
+        if rows.isEmpty { addEntryRow(gw: "", label: "") }
+        view.window?.layoutIfNeeded()
+    }
+
+    @objc private func save() {
+        var entries: [String] = []
+        for r in rows {
+            let gw = r.gw.stringValue.trimmingCharacters(in: .whitespaces)
+                .replacingOccurrences(of: "\"", with: "")
+                .replacingOccurrences(of: "=", with: "")
+            let lbl = r.label.stringValue.trimmingCharacters(in: .whitespaces)
+                .replacingOccurrences(of: "\"", with: "")
+            if gw.isEmpty || lbl.isEmpty { continue }
+            entries.append("\"\(gw)=\(lbl)\"")
+        }
+        let value = entries.isEmpty ? "()" : "( " + entries.joined(separator: " ") + " )"
+        let result = setConfig("NETWORK_LABELS", value)
+        if result.exitCode == 0 {
+            statusLabel.stringValue = entries.isEmpty
+                ? "Cleared all labels."
+                : "Saved \(entries.count) label\(entries.count == 1 ? "" : "s")."
+            NotificationCenter.default.post(name: .limpetConfigChanged, object: nil)
+        } else {
+            statusLabel.stringValue = "Couldn't save: \(result.output.trimmingCharacters(in: .whitespacesAndNewlines))"
+        }
+    }
+
+    private func refreshCurrentCard() {
+        if currentGW.isEmpty {
+            currentInfoLabel.stringValue = "Not connected to a network right now — connect first, then come back."
+            currentNameField.isEnabled = false
+            return
+        }
+        currentNameField.isEnabled = true
+        if let existing = resolveNetworkLabel(currentGW, labels: loadSettings().networkLabels) {
+            currentInfoLabel.stringValue = "Already labeled “\(existing)” · gateway \(currentGW). Type a new name to rename it."
+            if currentNameField.stringValue.isEmpty { currentNameField.stringValue = existing }
+        } else {
+            currentInfoLabel.stringValue = "macOS hides this network’s name · gateway \(currentGW). Give it a name you’ll recognize."
+        }
+    }
+
+    @objc private func labelCurrent() {
+        let name = currentNameField.stringValue.trimmingCharacters(in: .whitespaces)
+        guard !currentGW.isEmpty else { statusLabel.stringValue = "Not connected to a network."; return }
+        guard !name.isEmpty else { statusLabel.stringValue = "Type a name first."; return }
+        upsertRow(gw: currentGW, label: name)
+        save()
+        refreshCurrentCard()
+        view.window?.layoutIfNeeded()
+    }
+
+    // Update the row for this gateway if it exists, reuse a blank row, else add one.
+    private func upsertRow(gw: String, label: String) {
+        for r in rows where r.gw.stringValue.trimmingCharacters(in: .whitespaces) == gw {
+            r.label.stringValue = label
+            return
+        }
+        for r in rows where r.gw.stringValue.trimmingCharacters(in: .whitespaces).isEmpty
+            && r.label.stringValue.trimmingCharacters(in: .whitespaces).isEmpty {
+            r.gw.stringValue = gw
+            r.label.stringValue = label
+            return
+        }
+        addEntryRow(gw: gw, label: label)
+    }
+}
+
 // MARK: Window controller
 
 private final class SettingsWindowController: NSWindowController {
@@ -559,6 +776,7 @@ private final class SettingsWindowController: NSWindowController {
         tabController.tabStyle = .toolbar
         addTab(HotspotPane(), label: "Hotspot", symbol: "personalhotspot")
         addTab(BehaviorPane(), label: "Behavior", symbol: "slider.horizontal.3")
+        addTab(NetworksPane(), label: "Networks", symbol: "wifi")
         addTab(AboutPane(), label: "About", symbol: "info.circle")
         window.contentViewController = tabController
     }
@@ -575,6 +793,231 @@ private final class SettingsWindowController: NSWindowController {
         if let window, !window.isVisible { window.center() }
         window?.makeKeyAndOrderFront(nil)
     }
+}
+
+// MARK: - Timeline: compact log parse for the menu's mini-timeline
+
+private struct TimelineMoment {
+    enum Kind { case onlineWifi, onlineHotspot, offline, gap }
+    let kind: Kind
+    let time: String
+    let text: String
+}
+
+private enum TimelineParser {
+    private static let hotspotGW = "172.20.10."
+    private static let gapSeconds: TimeInterval = 12 * 60
+
+    private static func makeFormatter() -> DateFormatter {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return f
+    }
+
+    private static func clock(_ d: Date) -> String {
+        let c = Calendar.current.dateComponents([.hour, .minute], from: d)
+        return String(format: "%02d:%02d", c.hour ?? 0, c.minute ?? 0)
+    }
+
+    private static func dur(_ a: Date, _ b: Date) -> String {
+        let s = max(0, Int(b.timeIntervalSince(a)))
+        let h = s / 3600, m = (s % 3600) / 60, sec = s % 60
+        if h > 0 { return "\(h)h \(m)m" }
+        if m > 0 { return "\(m)m \(sec)s" }
+        return "\(sec)s"
+    }
+
+    /// "HH:mm" for entries on the reference day, "EEE HH:mm" (e.g. "Mon 11:16") for older ones,
+    /// so a glance at the menu isn't ambiguous across days.
+    private static func label(_ d: Date, reference: Date) -> String {
+        if Calendar.current.isDate(d, inSameDayAs: reference) { return clock(d) }
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "EEE HH:mm"
+        return f.string(from: d)
+    }
+
+    /// Returns the current state plus the most recent incidents/gaps (newest first).
+    static func parse(_ content: String, labels: [(match: String, label: String)] = [], limit: Int = 5)
+        -> (current: TimelineMoment?, moments: [TimelineMoment]) {
+        let f = makeFormatter()
+        var lines = content.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+        if lines.count > 800 { lines = Array(lines.suffix(800)) }
+
+        var onlineHot = false
+        var lastGateway = ""
+        var prev: Date?
+        var incidentStart: Date?
+        var incidentVia: String?
+        var lastDate: Date?
+        var lastKind: TimelineMoment.Kind = .onlineWifi
+        var collected: [(date: Date, kind: TimelineMoment.Kind, text: String)] = []
+
+        // The gateway most representative of a state, for label lookup (hotspot uses its range).
+        func labelFor(hot: Bool) -> String? {
+            resolveNetworkLabel(hot ? (lastGateway.hasPrefix(hotspotGW) ? lastGateway : "172.20.10.1") : lastGateway, labels: labels)
+        }
+
+        for line in lines {
+            guard line.count >= 19, let t = f.date(from: String(line.prefix(19))) else { continue }
+            let msg = line.dropFirst(20).trimmingCharacters(in: .whitespaces)
+            lastDate = t
+
+            if let r = msg.range(of: "gateway=") {
+                let gw = String(msg[r.upperBound...].prefix(while: { $0.isNumber || $0 == "." }))
+                if !gw.isEmpty { lastGateway = gw }
+                onlineHot = gw.hasPrefix(hotspotGW)
+            }
+
+            if let p = prev, t.timeIntervalSince(p) > gapSeconds, incidentStart == nil {
+                collected.append((p, .gap, "Asleep \(dur(p, t))"))
+            }
+            prev = t
+
+            if msg.hasPrefix("No internet detected") || msg.contains("captive portal)") {
+                if incidentStart == nil { incidentStart = t; incidentVia = nil }
+                continue
+            }
+
+            if let start = incidentStart {
+                if msg.hasPrefix("Recovered via macOS Auto-Join") || msg.contains("now on the phone hotspot") {
+                    incidentVia = "autojoin"
+                } else if msg.hasPrefix("Recovered after Wi-Fi power cycle") {
+                    incidentVia = "cycle"
+                }
+                let recovered = msg.hasPrefix("Recovered")
+                    || msg.hasPrefix("Remediation succeeded")
+                    || msg.hasPrefix("Internet OK")
+                    || msg.hasPrefix("Prefer Wi-Fi check")
+                    || msg.hasPrefix("Internet still OK")
+                if recovered {
+                    let landedHot = onlineHot || incidentVia == "autojoin"
+                    var suffix = ""
+                    if let l = labelFor(hot: landedHot) { suffix = " → \(l)" }
+                    else if landedHot { suffix = " → hotspot" }
+                    let text = "Recovered · down \(dur(start, t))" + suffix
+                    collected.append((t, landedHot ? .onlineHotspot : .onlineWifi, text))
+                    lastKind = landedHot ? .onlineHotspot : .onlineWifi
+                    incidentStart = nil
+                    incidentVia = nil
+                }
+                continue
+            }
+
+            if msg.hasPrefix("Internet OK") || msg.hasPrefix("Prefer Wi-Fi check")
+                || msg.hasPrefix("Current connection looks like hotspot") || msg.hasPrefix("Internet still OK")
+                || msg.hasPrefix("Switched from hotspot") || msg.hasPrefix("limpet started") {
+                lastKind = onlineHot ? .onlineHotspot : .onlineWifi
+            }
+        }
+
+        let reference = lastDate ?? Date()
+        var current: TimelineMoment?
+        if let ld = lastDate {
+            if let start = incidentStart {
+                current = TimelineMoment(kind: .offline, time: label(start, reference: ld), text: "Offline — fixing · \(dur(start, ld))")
+            } else {
+                let hot = lastKind == .onlineHotspot
+                let name = labelFor(hot: hot) ?? (hot ? "iPhone hotspot" : "Wi-Fi")
+                current = TimelineMoment(kind: lastKind, time: label(ld, reference: ld), text: "Online · \(name)")
+            }
+        }
+
+        let moments = collected.suffix(limit).reversed().map {
+            TimelineMoment(kind: $0.kind, time: label($0.date, reference: reference), text: $0.text)
+        }
+        return (current, moments)
+    }
+}
+
+// MARK: - Timeline window (live WKWebView)
+
+private final class TimelineWindowController: NSWindowController, WKNavigationDelegate, NSWindowDelegate {
+    private let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 940, height: 680))
+    private var refreshTimer: Timer?
+    private var logPath = defaultLogPath
+    private var labels: [(match: String, label: String)] = []
+    private var pageReady = false
+
+    convenience init() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 940, height: 680),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false)
+        window.title = "Limpet — Timeline"
+        window.isReleasedWhenClosed = false
+        window.minSize = NSSize(width: 560, height: 420)
+        self.init(window: window)
+
+        window.delegate = self
+        webView.autoresizingMask = [.width, .height]
+        webView.navigationDelegate = self
+        window.contentView = webView
+        loadPage()
+    }
+
+    private func loadPage() {
+        if let url = Bundle.main.url(forResource: "timeline", withExtension: "html") {
+            webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+        } else {
+            let fallback = "<body style=\"font:14px -apple-system;background:#0b1018;color:#e7eef7;padding:40px\">"
+                + "Timeline page not found in the app bundle. Reinstall Limpet — the installer copies "
+                + "<code>timeline.html</code> into the app.</body>"
+            webView.loadHTMLString(fallback, baseURL: nil)
+        }
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        pageReady = true
+        pushLog()
+    }
+
+    func show(logPath: String, labels: [(match: String, label: String)]) {
+        self.logPath = logPath
+        self.labels = labels
+        NSApp.activate(ignoringOtherApps: true)
+        if let window, !window.isVisible { window.center() }
+        window?.makeKeyAndOrderFront(nil)
+        pushLog()
+        startTimer()
+    }
+
+    /// Refresh labels while the window is open (e.g. after the Networks settings change).
+    func updateLabels(_ labels: [(match: String, label: String)]) {
+        self.labels = labels
+        pushLog()
+    }
+
+    private func startTimer() {
+        refreshTimer?.invalidate()
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
+            self?.pushLog()
+        }
+    }
+
+    private func pushLog() {
+        guard pageReady else { return }
+        let log = (try? String(contentsOfFile: logPath, encoding: .utf8)) ?? ""
+        // JSON-encode the log as a 1-element array, then hand element [0] to the page renderer.
+        // This escapes quotes/backslashes/newlines/unicode safely without hand-rolling it.
+        guard let data = try? JSONSerialization.data(withJSONObject: [log]),
+              let json = String(data: data, encoding: .utf8) else { return }
+        let labelObjs = labels.map { ["m": $0.match, "l": $0.label] }
+        let labelsJson = (try? JSONSerialization.data(withJSONObject: labelObjs))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+        webView.evaluateJavaScript(
+            "window.LIMPET_RENDER && window.LIMPET_RENDER(\(json)[0], {labels:\(labelsJson)});",
+            completionHandler: nil)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        refreshTimer?.invalidate()
+        refreshTimer = nil
+    }
+
+    deinit { refreshTimer?.invalidate() }
 }
 
 // MARK: - Status model
@@ -601,6 +1044,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var appIcon: NSImage?
     private var menuBarIcons: [String: NSImage] = [:]
     private var settingsController: SettingsWindowController?
+    private var timelineController: TimelineWindowController?
+    private var networkLabels: [(match: String, label: String)] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -618,11 +1063,21 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         statusItem.menu = menu
 
+        networkLabels = loadSettings().networkLabels
+        NotificationCenter.default.addObserver(self, selector: #selector(configChanged),
+                                               name: .limpetConfigChanged, object: nil)
+
         rebuildMenu()
         refreshStatus()
         timer = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in
             self?.refreshStatus()
         }
+    }
+
+    @objc private func configChanged() {
+        networkLabels = loadSettings().networkLabels
+        timelineController?.updateLabels(networkLabels)
+        rebuildMenu()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -791,7 +1246,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(NSMenuItem.separator())
         menu.addItem(actionItem("Settings…", #selector(openSettings(_:))))
-        menu.addItem(actionItem("Open Log", #selector(openLog(_:))))
+        menu.addItem(activitySubmenuItem(status))
 
         menu.addItem(NSMenuItem.separator())
         menu.addItem(actionItem("Quit Limpet", #selector(quitMenu(_:))))
@@ -818,6 +1273,57 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private func disabledItem(_ title: String) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         item.isEnabled = false
+        return item
+    }
+
+    /// "Activity ▸" — a live mini-timeline (current state + recent incidents/gaps),
+    /// then the full visual timeline window and the raw log file.
+    private func activitySubmenuItem(_ status: GuardianStatus?) -> NSMenuItem {
+        let parent = NSMenuItem(title: "Activity", action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+
+        let logPath = status?.logFile ?? defaultLogPath
+        let content = (try? String(contentsOfFile: logPath, encoding: .utf8)) ?? ""
+        let parsed = TimelineParser.parse(content, labels: networkLabels)
+
+        if let current = parsed.current {
+            submenu.addItem(momentRow(current, emphasized: true))
+            submenu.addItem(NSMenuItem.separator())
+        }
+        if parsed.moments.isEmpty {
+            submenu.addItem(disabledItem("No outages recorded — steady."))
+        } else {
+            for moment in parsed.moments {
+                submenu.addItem(momentRow(moment, emphasized: false))
+            }
+        }
+
+        submenu.addItem(NSMenuItem.separator())
+        submenu.addItem(actionItem("Open Full Timeline…", #selector(openTimeline(_:))))
+        submenu.addItem(actionItem("Open Raw Log…", #selector(openLog(_:))))
+
+        parent.submenu = submenu
+        return parent
+    }
+
+    private func momentRow(_ moment: TimelineMoment, emphasized: Bool) -> NSMenuItem {
+        let color: NSColor
+        switch moment.kind {
+        case .onlineWifi: color = .systemGreen
+        case .onlineHotspot: color = .systemBlue
+        case .offline: color = .systemRed
+        case .gap: color = .systemGray
+        }
+        let title = NSMutableAttributedString(string: "● ", attributes: [.foregroundColor: color])
+        let font = emphasized ? NSFont.boldSystemFont(ofSize: NSFont.systemFontSize)
+                              : NSFont.menuFont(ofSize: 0)
+        title.append(NSAttributedString(string: "\(moment.time)  \(moment.text)",
+            attributes: [.foregroundColor: NSColor.labelColor, .font: font]))
+
+        // Enabled (full-strength, not dimmed) and clickable → opens the full timeline.
+        let item = NSMenuItem(title: moment.text, action: #selector(openTimeline(_:)), keyEquivalent: "")
+        item.target = self
+        item.attributedTitle = title
         return item
     }
 
@@ -872,6 +1378,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func openSettings(_ sender: NSMenuItem) {
         if settingsController == nil { settingsController = SettingsWindowController() }
         settingsController?.show()
+    }
+
+    @objc private func openTimeline(_ sender: NSMenuItem) {
+        if timelineController == nil { timelineController = TimelineWindowController() }
+        timelineController?.show(logPath: currentStatus?.logFile ?? defaultLogPath, labels: networkLabels)
     }
 
     @objc private func openLog(_ sender: NSMenuItem) {
