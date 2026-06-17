@@ -287,7 +287,7 @@ PREFER_WIFI_OVER_HOTSPOT=1                         # automatically move back fro
 PREFER_WIFI_CHECK_INTERVAL=300                     # every 5 min when it looks like it's on hotspot
 HOTSPOT_GATEWAY_PREFIXES=( "172.20.10." )         # hotspot detection when the SSID is redacted (iPhone range)
 PREFER_AUTOJOIN_HOTSPOT=1                          # same Apple ID: yield to macOS Auto-Join before the password join
-AUTOJOIN_WAIT_SECS=15                              # how long to give macOS to auto-join (Android: set PREFER_AUTOJOIN_HOTSPOT=0)
+AUTOJOIN_WAIT_SECS=60                              # how long to give macOS to auto-join (Android: set PREFER_AUTOJOIN_HOTSPOT=0)
 CHECK_INTERVAL=45                                 # seconds between checks while online
 MAX_INTERVAL=300                                  # backoff cap on failure
 LOG_FILE="$HOME/Library/Logs/limpet.log"

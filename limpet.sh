@@ -64,7 +64,7 @@ HOTSPOT_GATEWAY_PREFIXES=( "172.20.10." )
 # is on, Limpet yields AUTOJOIN_WAIT_SECS to that before its own password join.
 # Android / different-Apple-ID phones: set 0 to skip the wait (password join only).
 PREFER_AUTOJOIN_HOTSPOT=1
-AUTOJOIN_WAIT_SECS=15
+AUTOJOIN_WAIT_SECS=60
 
 # Wi-Fi interface. Empty = auto-detect from networksetup -listallhardwareports.
 WIFI_INTERFACE=""
@@ -421,12 +421,16 @@ prefer_wifi_over_hotspot() {
 # Mac has no good Wi-Fi -- which is exactly when macOS Auto-Join fires. There is no
 # CLI to trigger Instant Hotspot, so we yield and verify rather than join it.
 wait_for_autojoin() {
-  local waited=0 step=3 budget="${AUTOJOIN_WAIT_SECS:-15}"
-  log "Yielding ${budget}s to macOS Auto-Join Hotspot before the password join..."
-  while [ "$waited" -lt "$budget" ]; do
-    sleep "$step"
-    waited=$((waited + step))
+  # Real wall-clock budget: probe_internet itself can take ~15s when offline, so
+  # we measure elapsed time rather than counting sleeps. Auto-Join can take "up to
+  # a minute or more" (Apple), so the default budget is generous; we return early
+  # the moment internet is back.
+  local budget="${AUTOJOIN_WAIT_SECS:-60}" start
+  start=$(date +%s)
+  log "Yielding up to ${budget}s for macOS Auto-Join Hotspot (needs same Apple ID, Bluetooth on, and Wi-Fi > 'Ask to join hotspots' = Automatic)..."
+  while [ $(( $(date +%s) - start )) -lt "$budget" ]; do
     probe_internet && return 0
+    sleep 2
   done
   return 1
 }
@@ -462,7 +466,13 @@ remediate() {
   # window before falling back. Skipped (no wait) when PREFER_AUTOJOIN_HOTSPOT=0.
   if [ "${PREFER_AUTOJOIN_HOTSPOT:-1}" -eq 1 ]; then
     if wait_for_autojoin; then
-      log "Recovered via macOS Auto-Join Hotspot."
+      # Report what we actually landed on so we can tell the mechanism apart:
+      # the phone hotspot (auto-joined / woken) vs. some other network returning.
+      if current_network_is_hotspot; then
+        log "Internet recovered during Auto-Join wait -- now on the phone hotspot (gateway $(default_gateway))."
+      else
+        log "Internet recovered during Auto-Join wait (network: $(current_ssid_or_unknown), gateway $(default_gateway))."
+      fi
       return 0
     fi
   fi

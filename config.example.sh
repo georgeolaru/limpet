@@ -50,7 +50,7 @@ HOTSPOT_GATEWAY_PREFIXES=( "172.20.10." )
 # which a password join can't wake. With this on, Limpet yields AUTOJOIN_WAIT_SECS
 # to macOS before doing its own password join. Android / other Apple ID: set 0.
 PREFER_AUTOJOIN_HOTSPOT=1
-AUTOJOIN_WAIT_SECS=15
+AUTOJOIN_WAIT_SECS=60
 
 # --- Wi-Fi interface --------------------------------------------------------
 # Leave empty for auto-detect (recommended). Set "en0" only to force it.
