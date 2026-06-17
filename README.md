@@ -211,9 +211,11 @@ Gateway range: `172.20.10.` (already the default in `HOTSPOT_GATEWAY_PREFIXES`).
 > [Apple — Instant / Auto-Join Hotspot](https://support.apple.com/en-us/109321) ·
 > [Connect to a Personal Hotspot](https://support.apple.com/en-us/111785).
 >
-> **The hands-off setup** (the canonical one): Mac kept awake with **Amphetamine** or
-> `caffeinate`, lid open in a bag, same-Apple-ID iPhone with Auto-Join on. Limpet watches for
-> dead internet, macOS handles the hotspot — no clicking, no screen to keep open.
+> **The hands-off setup** (the canonical one): MacBook kept awake by **Amphetamine** in
+> **closed-display mode** — lid *shut* in a backpack — with a same-Apple-ID iPhone and Auto-Join
+> on. Limpet watches for dead internet, macOS wakes and joins the hotspot over Bluetooth — no
+> clicking, no screen to keep open, nothing to touch. (Plain `caffeinate` can't keep a Mac awake
+> with the lid closed on battery; Amphetamine's closed-display mode can.)
 
 </details>
 
